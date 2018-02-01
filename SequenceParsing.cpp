@@ -79,6 +79,16 @@ utf8_to_utf16(const string& str)
     return native;
 }     // utf8_to_utf16
 
+static string
+utf16_to_utf8 (const wstring& str)
+{
+    string utf8;
+
+    utf8.resize(WideCharToMultiByte (CP_UTF8, 0, str.data(), str.length(), NULL, 0, NULL, NULL));
+    WideCharToMultiByte (CP_UTF8, 0, str.data(), str.length(), &utf8[0], (int)utf8.size(), NULL, NULL);
+
+    return utf8;
+}
 #endif
 
 
@@ -87,7 +97,8 @@ getFileSize(const string& filename)
 {
 #ifdef _WIN32
     wstring wfilename = utf8_to_utf16(filename);
-    LARGE_INTEGER file_size = { 0 };
+    LARGE_INTEGER file_size;
+    file_size.QuadPart = 0;
 
     /*
        On Windows there are 3 methods to get the size of a file, the most robust being the 1st one
@@ -384,7 +395,12 @@ getFilesFromDir(tinydir_dir& dir,
         tinydir_file file;
         int status = tinydir_readfile(&dir, &file);
         if ( ( status == 0) && !file.is_dir ) {
+#if defined(_WIN32) && defined(UNICODE)
+            wstring wfilename(file.name);
+            string filename(utf16_to_utf8(wfilename));
+#else
             string filename(file.name);
+#endif
             if ( ( filename != ".") && ( filename != "..") ) {
                 ret->push_back(filename);
             }
@@ -1182,9 +1198,13 @@ filesListFromPattern_slow(const string& pattern,
     }
 
     string patternUnPathed = pattern;
-    string patternPath = removePath(patternUnPathed);
-
     tinydir_dir patternDir;
+
+#if defined(_WIN32) && defined(UNICODE)
+    wstring patternPath = utf8_to_utf16(removePath(patternUnPathed));
+#else
+    string patternPath = removePath(patternUnPathed);
+#endif
     if (tinydir_open( &patternDir, patternPath.c_str() ) == -1) {
         return false;
     }
