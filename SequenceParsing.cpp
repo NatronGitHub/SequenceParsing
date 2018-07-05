@@ -34,7 +34,7 @@
 #include <algorithm>
 #include <memory>
 
-#ifdef _WIN32
+#if (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
 #include <windows.h>
 #else
 #include <sys/stat.h>
@@ -67,7 +67,7 @@ using namespace SequenceParsing;
 
 namespace  {
 
-#ifdef _WIN32
+#if (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
 static wstring
 utf8_to_utf16(const string& str)
 {
@@ -95,7 +95,7 @@ utf16_to_utf8 (const wstring& str)
 static std::size_t
 getFileSize(const string& filename)
 {
-#ifdef _WIN32
+#if (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
     wstring wfilename = utf8_to_utf16(filename);
     LARGE_INTEGER file_size;
     file_size.QuadPart = 0;
@@ -139,11 +139,11 @@ getFileSize(const string& filename)
     }
 
     return (std::size_t)file_size.QuadPart;
-#else // !_WIN32
+#else // !(defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
     std::ifstream in(filename.c_str(), std::ifstream::ate | std::ifstream::binary);
 
     return in.tellg();
-#endif // _WIN32
+#endif // (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
 }
 
 #if 0
@@ -395,7 +395,7 @@ getFilesFromDir(tinydir_dir& dir,
         tinydir_file file;
         int status = tinydir_readfile(&dir, &file);
         if ( ( status == 0) && !file.is_dir ) {
-#if defined(_WIN32) && defined(UNICODE)
+#if (defined(_WIN32) || defined(__WIN32__) || defined(WIN32)) && defined(UNICODE)
             wstring wfilename(file.name);
             string filename(utf16_to_utf8(wfilename));
 #else
@@ -1200,7 +1200,7 @@ filesListFromPattern_slow(const string& pattern,
     string patternUnPathed = pattern;
     tinydir_dir patternDir;
 
-#if defined(_WIN32) && defined(UNICODE)
+#if (defined(_WIN32) || defined(__WIN32__) || defined(WIN32)) && defined(UNICODE)
     wstring patternPath = utf8_to_utf16(removePath(patternUnPathed));
 #else
     string patternPath = removePath(patternUnPathed);
