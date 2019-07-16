@@ -992,7 +992,7 @@ FileNameContent::getPotentialFrameNumbersCount() const
  * @param numberIndexToVary [out] In case the pattern contains several numbers (@see getNumberByIndex)
  * this value will be fed the appropriate number index that should be used for frame number.
  * For example, if this filename is myfile001_000.jpg and the other file is myfile001_001.jpg
- * numberIndexToVary would be 1 as the frame number string indentified in that case is the last number.
+ * numberIndexToVary would be 1 as the frame number string identified in that case is the last number.
  * @returns True if it identified 'other' as belonging to the same sequence, false otherwise.
  **/
 bool

@@ -1,13 +1,11 @@
-SequenceParsing
-===============
+# SequenceParsing
 
-Definition:
-----------
+## Definition:
 
 Pattern: A file name, absolute or not, which is composed of symbols (variable) which
 can take several values.
 
-#Supported variables:
+### Supported variables:
 
 - %d : indicates that any number should be present instead of the variable. This option
 works like printf like arguments, e.g:  %04d, which indicates you want the variable
