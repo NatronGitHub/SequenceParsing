@@ -1531,7 +1531,7 @@ SequenceFromFiles::generateUserFriendlySequencePatternFromValidPattern(const str
     }
     while ( first != _imp->filesMap.end() ) {
         int breakCounter = 0;
-        while ( next != _imp->filesMap.end() && next->first == (cur->first + 1) ) {
+        while ( next != _imp->filesMap.end() && cur != _imp->filesMap.end() && next->first == (cur->first + 1) ) {
             if ( next != _imp->filesMap.end() ) {
                 ++next;
             }
@@ -1540,7 +1540,9 @@ SequenceFromFiles::generateUserFriendlySequencePatternFromValidPattern(const str
             }
             ++breakCounter;
         }
-        chunks.push_back( make_pair(first->first, cur->first) );
+        if ( cur != _imp->filesMap.end() ) {
+            chunks.push_back( make_pair(first->first, cur->first) );
+        }
         first = next;
         if ( next != _imp->filesMap.end() ) {
             ++next;
