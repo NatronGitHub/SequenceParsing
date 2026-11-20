@@ -478,7 +478,13 @@ numberMatchDigits(int digitsCount,
                   const string& number,
                   int *frameNumber)
 {
-    assert(digitsCount > 0);
+    if ( number.empty() ) {
+        return false;
+    }
+    if (digitsCount < 1) {
+        // %d (or %0d): no padding, like printf, so the number has at least one digit.
+        digitsCount = 1;
+    }
 
     if ( !stringToInt(number, frameNumber) ) {
         return false;

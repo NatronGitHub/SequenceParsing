@@ -280,6 +280,24 @@ testIntOverflow()
     CHECK(thrown);
 }
 
+static void
+testPrintfNoPadding()
+{
+    // %d is printf's %d: any number without padding, including 0
+    StringList files = numbered("img", 0, 12, 0, ".jpg");
+    files.push_back("img.jpg");
+    files.push_back("img007.jpg");
+    SequenceFromPattern seq = parse("img%d.jpg", files);
+    CHECK_EQ( 13, (int)seq.size() );
+    CHECK( seq.find(0) != seq.end() );
+    CHECK_EQ( std::string("img7.jpg"), seq[7][0] );
+    CHECK_EQ( 13, (int)parse("img%0d.jpg", files).size() );
+    CHECK_EQ( 13, (int)parse("img%1d.jpg", files).size() );
+    files.clear();
+    files.push_back("img.jpg");
+    CHECK_EQ( 0, (int)parse("img%d.jpg", files).size() );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -320,6 +338,7 @@ main()
     testSequenceFromFiles();
     testUtf8();
     testIntOverflow();
+    testPrintfNoPadding();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif
