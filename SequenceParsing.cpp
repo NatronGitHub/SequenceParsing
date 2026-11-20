@@ -1111,21 +1111,29 @@ FileNameContent::matchesPattern(const FileNameContent& other,
             return false;
         }
         if (_imp->orderedElements[i].type == FileNameElement::FRAME_NUMBER) {
-            // the number strings must be different, and both be written with the same padding
+            // a varying number must be written with the same padding in both names
             const string& thisNumber = _imp->orderedElements[i].data;
             const string& otherNumber = otherElements[i].data;
-            bool isOK = ( thisNumber != otherNumber ) && samePaddingPossible(thisNumber, otherNumber);
+            if (thisNumber == otherNumber) {
+                ++numbersCount;
+                continue;
+            }
+            // a number that differs but can't be written with the same padding
+            // (e.g. "8" and "08") means another sequence
+            if ( !samePaddingPossible(thisNumber, otherNumber) ) {
+                *numberIndexToVary = -1;
 
-            if (isOK) {
-                if (*numberIndexToVary == -1) {
-                    *numberIndexToVary = numbersCount;
-                } else {
-                    // cannot have more than one varying number, eg:
-                    // Digital_LAD_2048x1556.cin
-                    // Digital_LAD_4096x3112.cin
-                    *numberIndexToVary = -1;
-                    return false;
-                }
+                return false;
+            }
+            if (*numberIndexToVary == -1) {
+                *numberIndexToVary = numbersCount;
+            } else {
+                // cannot have more than one varying number, eg:
+                // Digital_LAD_2048x1556.cin
+                // Digital_LAD_4096x3112.cin
+                *numberIndexToVary = -1;
+
+                return false;
             }
 
             ++numbersCount;

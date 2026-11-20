@@ -527,6 +527,21 @@ testSizeEstimation()
 #endif
 }
 
+static void
+testIncompatibleOtherNumber()
+{
+    // a number that differs but can't share the padding of the other one means another sequence:
+    // a8_002.exr is not frame 2 of a08_###.exr
+    int idx = -1;
+    CHECK( !FileNameContent("a8_002.exr").matchesPattern(FileNameContent("a08_001.exr"), &idx) );
+    CHECK( !FileNameContent("a08_001.exr").matchesPattern(FileNameContent("a8_002.exr"), &idx) );
+    SequenceFromFiles seq( FileNameContent("/d/a08_001.exr"), false );
+    CHECK( !seq.tryInsertFile( FileNameContent("/d/a8_002.exr") ) );
+    CHECK( seq.tryInsertFile( FileNameContent("/d/a08_002.exr") ) );
+    CHECK( seq.tryInsertFile( FileNameContent("/d/a08_010.exr") ) );
+    CHECK_EQ( std::string("/d/a08_###.exr"), seq.generateValidSequencePattern() );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -577,6 +592,7 @@ main()
     testFilePatternNumHashes();
     testPatternAtIndex();
     testSizeEstimation();
+    testIncompatibleOtherNumber();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif
