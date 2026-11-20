@@ -1395,7 +1395,6 @@ struct SequenceFromFilesPrivate
     int frameNumberStringIndex;
     unsigned long long totalSize;
     bool sizeEstimationEnabled;
-    int minNumHashes;     //< the minimum number of hash tags # for the pattern
 
     SequenceFromFilesPrivate(bool enableSizeEstimation)
 
@@ -1403,13 +1402,30 @@ struct SequenceFromFilesPrivate
         , frameNumberStringIndex(-1)
         , totalSize(0)
         , sizeEstimationEnabled(enableSizeEstimation)
-        , minNumHashes(0)
     {
     }
 
     bool isInSequence(int index) const
     {
         return filesMap.find(index) != filesMap.end();
+    }
+
+    /// The number of hash tags # for the pattern: the length of the frame numbers that start
+    /// with '0', if any, else the length of the shortest frame number.
+    int getNumHashes() const
+    {
+        int numHashes = INT_MAX;
+        for (map<int, FileNameContent>::const_iterator it = filesMap.begin(); it != filesMap.end(); ++it) {
+            string frameNumberStr;
+            if ( it->second.getNumberByIndex(frameNumberStringIndex, &frameNumberStr) && !frameNumberStr.empty() ) {
+                if (frameNumberStr[0] == '0') {
+                    return (int)frameNumberStr.size();
+                }
+                numHashes = std::min( numHashes, (int)frameNumberStr.size() );
+            }
+        }
+
+        return numHashes == INT_MAX ? 0 : numHashes;
     }
 };
 
@@ -1459,8 +1475,6 @@ SequenceFromFiles::tryInsertFile(const FileNameContent& file,
             frameNumber = -1;
         }
         _imp->filesMap.insert( make_pair(frameNumber, file) );
-
-        _imp->minNumHashes = (int)frameNumberStr.size();
 
         if (_imp->sizeEstimationEnabled) {
             _imp->totalSize += getFileSize( file.absoluteFileName() );
@@ -1590,7 +1604,7 @@ SequenceFromFiles::generateValidSequencePattern() const
     assert(_imp->filesMap.size() >= 2);
     string firstFramePattern;
     _imp->filesMap.begin()->second.generatePatternWithFrameNumberAtIndex(_imp->frameNumberStringIndex,
-                                                                         _imp->minNumHashes,
+                                                                         _imp->getNumHashes(),
                                                                          &firstFramePattern);
 
     return firstFramePattern;

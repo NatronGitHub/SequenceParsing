@@ -419,6 +419,32 @@ testUnpaddedWithZero()
     CHECK( FileNameContent("00001.jpg").matchesPattern(FileNameContent("122938.jpg"), &idx) );
 }
 
+static void
+testSequencePadding()
+{
+    // the pattern must match all the files of the sequence, whatever the insertion order
+    // (directory listings are often sorted alphabetically: img10 before img9)
+    SequenceFromFiles seq(false);
+    CHECK_EQ( 4, insertAll( seq, numbered("/d/img", 9, 12, 0, ".png") ) ); // img9 first: OK
+    CHECK_EQ( std::string("/d/img#.png"), seq.generateValidSequencePattern() );
+    StringList files = numbered("/d/img", 8, 12, 0, ".png");
+    std::sort( files.begin(), files.end() ); // img10 img11 img12 img8 img9
+    SequenceFromFiles seq2(false);
+    CHECK_EQ( 5, insertAll(seq2, files) );
+    CHECK_EQ( std::string("/d/img#.png"), seq2.generateValidSequencePattern() );
+    CHECK_EQ( std::string("img#.png 8-12"), seq2.generateUserFriendlySequencePattern() );
+    for (size_t i = 0; i < files.size(); ++i) {
+        removePath(files[i]);
+    }
+    CHECK_EQ( 5, (int)parse(seq2.generateValidSequencePattern(), files).size() );
+
+    files = numbered("/d/img", 98, 101, 3, ".png");
+    std::reverse( files.begin(), files.end() );
+    SequenceFromFiles seq3(false);
+    CHECK_EQ( 4, insertAll(seq3, files) );
+    CHECK_EQ( std::string("/d/img###.png"), seq3.generateValidSequencePattern() );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -464,6 +490,7 @@ main()
     testNegativeFrames();
     testGlobalLocale();
     testUnpaddedWithZero();
+    testSequencePadding();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif
