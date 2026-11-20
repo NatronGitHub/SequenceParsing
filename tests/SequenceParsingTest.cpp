@@ -3,6 +3,7 @@
 
 #include "SequenceParsing.h"
 
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -331,6 +332,45 @@ testViewsRoundTrip()
     CHECK_EQ( std::string("a.View3.exr"), seq[-1][3] );
 }
 
+static void
+testNegativeFrames()
+{
+    // negative frames are written and read like printf("%04d") does: "-005"
+    std::vector<std::string> views;
+    CHECK_EQ( std::string("img.-005.exr"), generateFileNameFromPattern("img.####.exr", views, -5, 0) );
+    CHECK_EQ( std::string("img.-005.exr"), generateFileNameFromPattern("img.%04d.exr", views, -5, 0) );
+    CHECK_EQ( std::string("img.-12345.exr"), generateFileNameFromPattern("img.####.exr", views, -12345, 0) );
+    CHECK_EQ( std::string("img.-5.exr"), generateFileNameFromPattern("img.%d.exr", views, -5, 0) );
+    CHECK_EQ( std::string("img.-5.exr"), generateFileNameFromPattern("img.#.exr", views, -5, 0) );
+    CHECK_EQ( std::string("img.-2147483648.exr"), generateFileNameFromPattern("img.#.exr", views, INT_MIN, 0) );
+
+    StringList files;
+    for (int f = -12; f <= 3; ++f) {
+        files.push_back( generateFileNameFromPattern("img.####.exr", views, f, 0) );
+    }
+    files.push_back("img.-0001.exr"); // too much padding
+    files.push_back("img.-000.exr"); // -0
+    files.push_back("img.-.exr");
+    SequenceFromPattern seq = parse("img.####.exr", files);
+    CHECK_EQ( 16, (int)seq.size() );
+    CHECK_EQ( std::string("img.-012.exr"), seq[-12][0] );
+    CHECK_EQ( std::string("img.0000.exr"), seq[0][0] );
+    files.clear();
+    for (int f = -12; f <= 3; ++f) {
+        files.push_back( generateFileNameFromPattern("img.%d.exr", views, f, 0) );
+    }
+    files.push_back("img.-05.exr");
+    seq = parse("img.%d.exr", files);
+    CHECK_EQ( 16, (int)seq.size() );
+    CHECK_EQ( std::string("img.-5.exr"), seq[-5][0] );
+    // a literal '-' in the pattern is still a separator
+    files.clear();
+    files.push_back("img-001.exr");
+    seq = parse("img-###.exr", files);
+    CHECK_EQ( 1, (int)seq.size() );
+    CHECK( seq.find(1) != seq.end() );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -373,6 +413,7 @@ main()
     testIntOverflow();
     testPrintfNoPadding();
     testViewsRoundTrip();
+    testNegativeFrames();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

@@ -507,42 +507,61 @@ numberMatchDigits(int digitsCount,
     return true;
 }
 
+/*
+   Matches a frame number written with a padding of digitsCount (### or %0<digitsCount>d)
+   at startingPos in filename, i.e. what printf("%0<digitsCount>d") writes:
+   the number is at least digitsCount characters long, and longer only without leading zeroes.
+   A negative number starts with '-', which counts in the width, as with printf:
+   -5 is written "-005" with a padding of 4.
+ */
 static bool
-matchesHashTag(int sharpCount,
-               const string& filename,
-               size_t startingPos,
-               size_t *endPos,
-               int* frameNumber)
+matchesFrameNumber(int digitsCount,
+                   const string& filename,
+                   size_t startingPos,
+                   size_t *endPos,
+                   int* frameNumber)
 {
+    bool negative = ( startingPos < filename.size() ) && ( filename[startingPos] == '-' );
+    size_t variableIt = negative ? startingPos + 1 : startingPos;
     string variable;
-    size_t variableIt = startingPos;
-    for (variableIt = startingPos;
-         variableIt < filename.size() && isAsciiDigit(filename[variableIt]);
-         ++variableIt) {
+    for (; variableIt < filename.size() && isAsciiDigit(filename[variableIt]); ++variableIt) {
         variable.push_back(filename[variableIt]);
     }
     *endPos = variableIt;
 
-    return numberMatchDigits(sharpCount, variable, frameNumber);
+    if (!negative) {
+        return numberMatchDigits(digitsCount, variable, frameNumber);
+    }
+    int absFrameNumber;
+    if ( !numberMatchDigits(digitsCount - 1, variable, &absFrameNumber) || (absFrameNumber == 0) ) {
+        return false;
+    }
+    *frameNumber = -absFrameNumber;
+
+    return true;
 }
 
-static bool
-matchesPrintfLikeSyntax(int digitsCount,
-                        const string& filename,
-                        size_t startingPos,
-                        size_t *endPos,
-                        int* frameNumber)
+/*
+   Writes frameNumber as printf("%0<digitsCount>d") does.
+ */
+static string
+frameNumberToString(int frameNumber,
+                    int digitsCount)
 {
-    string variable;
-    size_t variableIt;
-    for (variableIt = startingPos;
-         variableIt < filename.size() && isAsciiDigit(filename[variableIt]);
-         ++variableIt) {
-        variable.push_back(filename[variableIt]);
+    long long absFrameNumber = frameNumber;
+    if (absFrameNumber < 0) {
+        absFrameNumber = -absFrameNumber;
     }
-    *endPos = variableIt;
+    string ret = std::to_string(absFrameNumber);
+    int width = (frameNumber < 0) ? digitsCount - 1 : digitsCount;
+    if ( (int)ret.size() < width ) {
+        ret.insert(0, width - ret.size(), '0');
+    }
+    if (frameNumber < 0) {
+        ret.insert(0, 1, '-');
+    }
 
-    return numberMatchDigits(digitsCount, variable, frameNumber);
+    return ret;
 }
 
 // Does str contain prefix at position pos, ignoring ASCII case?
@@ -693,7 +712,7 @@ matchesPattern_v2(const string& filename,
             int fNumber = -1;
 
             ///check if the filename matches the number of hashes
-            if ( !matchesHashTag(sharpCount, filenameCpy, filenameIt, &endHashTag, &fNumber) ) {
+            if ( !matchesFrameNumber(sharpCount, filenameCpy, filenameIt, &endHashTag, &fNumber) ) {
                 return false;
             }
 
@@ -716,7 +735,7 @@ matchesPattern_v2(const string& filename,
             size_t endPrintfLike = 0;
             int fNumber = -1;
             ///check if the filename matches the %d syntax
-            if ( !matchesPrintfLikeSyntax(printfDigitCount, filenameCpy, filenameIt, &endPrintfLike, &fNumber) ) {
+            if ( !matchesFrameNumber(printfDigitCount, filenameCpy, filenameIt, &endPrintfLike, &fNumber) ) {
                 return false;
             }
 
@@ -1325,12 +1344,7 @@ generateFileNameFromPattern(const string& pattern,
         assert(lastVariablePos != string::npos);
 
         if (variable.find_first_of('#') != string::npos) {
-            string frameNoStr = stringFromInt(frameNumber);
-            ///prepend with extra 0's
-            while ( frameNoStr.size() < variable.size() ) {
-                frameNoStr.insert(0, 1, '0');
-            }
-            output.replace(lastVariablePos, variable.size(), frameNoStr);
+            output.replace( lastVariablePos, variable.size(), frameNumberToString( frameNumber, (int)variable.size() ) );
         } else if (variable.find("%v") != string::npos) {
             string viewNumberStr;
             if ( ( viewNumber >= 0) && ( viewNumber < (int)viewNames.size() ) ) {
@@ -1352,14 +1366,9 @@ generateFileNameFromPattern(const string& pattern,
             if ( !digitsCountStr.empty() && !stringToInt(digitsCountStr, &digitsCount) ) {
                 throw std::invalid_argument("Unrecognized pattern: " + pattern);
             }
-            string frameNoStr = stringFromInt(frameNumber);
-            //prepend with extra 0's
-            while ( (int)frameNoStr.size() < digitsCount ) {
-                frameNoStr.insert(0, 1, '0');
-            }
-            output.replace(lastVariablePos, variable.size(), frameNoStr);
+            output.replace( lastVariablePos, variable.size(), frameNumberToString(frameNumber, digitsCount) );
         } else if (variable == "%d") {
-            output.replace( lastVariablePos, variable.size(), stringFromInt(frameNumber) );
+            output.replace( lastVariablePos, variable.size(), frameNumberToString(frameNumber, 1) );
         } else {
             throw std::invalid_argument("Unrecognized pattern: " + pattern);
         }
