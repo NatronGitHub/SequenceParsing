@@ -3,6 +3,7 @@
 
 #include "SequenceParsing.h"
 
+#include <algorithm>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
@@ -395,6 +396,29 @@ testGlobalLocale()
     std::locale::global(previous);
 }
 
+static void
+testUnpaddedWithZero()
+{
+    // unpadded sequence that contains frame 0 and frames >= 10, inserted in directory
+    // (alphabetical) order: test_0, test_1, test_10, test_11, test_2, ...
+    StringList files = numbered("/d/test_", 0, 11, 0, ".exr");
+    std::sort( files.begin(), files.end() );
+    SequenceFromFiles seq(false);
+    CHECK_EQ( 12, insertAll(seq, files) );
+    CHECK_EQ( 0, seq.getFirstFrame() );
+    CHECK_EQ( 11, seq.getLastFrame() );
+    int idx = -1;
+    CHECK( FileNameContent("test_10.exr").matchesPattern(FileNameContent("test_0.exr"), &idx) );
+    CHECK( FileNameContent("test_0.exr").matchesPattern(FileNameContent("test_10.exr"), &idx) );
+    CHECK( FileNameContent("test_08.exr").matchesPattern(FileNameContent("test_10.exr"), &idx) );
+    CHECK( !FileNameContent("test_08.exr").matchesPattern(FileNameContent("test_9.exr"), &idx) );
+    CHECK( !FileNameContent("test_9.exr").matchesPattern(FileNameContent("test_08.exr"), &idx) );
+    CHECK( !FileNameContent("test_008.exr").matchesPattern(FileNameContent("test_08.exr"), &idx) );
+    // 122938 is what %05d writes for frame 122938, in either order
+    CHECK( FileNameContent("122938.jpg").matchesPattern(FileNameContent("00001.jpg"), &idx) );
+    CHECK( FileNameContent("00001.jpg").matchesPattern(FileNameContent("122938.jpg"), &idx) );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -439,6 +463,7 @@ main()
     testViewsRoundTrip();
     testNegativeFrames();
     testGlobalLocale();
+    testUnpaddedWithZero();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

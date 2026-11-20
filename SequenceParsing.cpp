@@ -813,6 +813,33 @@ matchesPattern_v2(const string& filename,
     return true;
 } // matchesPattern_v2
 
+/*
+   Can the number strings a and b be written with the same padding N (### or %0Nd)?
+   A number string that starts with '0' (including "0" itself) can only be written
+   with a padding equal to its length; a number string that does not start with '0'
+   can be written with any padding from 1 to its length. For example "0" and "10" are
+   both written with "#", "08" and "10" with "##", but "08" and "9" can't be in the same sequence.
+ */
+static bool
+samePaddingPossible(const string& a,
+                    const string& b)
+{
+    if ( a.empty() || b.empty() ) {
+        return false;
+    }
+    bool aFixed = ( a[0] == '0' );
+    bool bFixed = ( b[0] == '0' );
+    if (aFixed && bFixed) {
+        return a.size() == b.size();
+    } else if (aFixed) {
+        return b.size() >= a.size();
+    } else if (bFixed) {
+        return a.size() >= b.size();
+    }
+
+    return true;
+}
+
 static int countLeadingZeroes(const string& str)
 {
     int ret = 0;
@@ -1087,25 +1114,10 @@ FileNameContent::matchesPattern(const FileNameContent& other,
             return false;
         }
         if (_imp->orderedElements[i].type == FileNameElement::FRAME_NUMBER) {
-            /*
-               The following rules applying for matching frame numbers:
-               First we generate hashes from this number, then:
-               - If the other number has at least as many digits as the hashes generated then it is OK
-               - If the other number has more digits than the hashes, it is only OK if it has 0 prepening zeroes
-             */
-            int hashesCount = (int)_imp->orderedElements[i].data.size();
-            int number;
-            bool isOK = false;
-            // first, the number string must be different
-            if ( _imp->orderedElements[i].data != otherElements[i].data ) {
-                // if the number strings do not start with 0 then it may be a match
-                if ( ( _imp->orderedElements[i].data.size() > 0) && ( _imp->orderedElements[i].data[0] != '0') &&
-                    ( otherElements[i].data.size() > 0) && ( otherElements[i].data[0] != '0') ) {
-                    isOK = true;
-                } else {
-                    isOK = numberMatchDigits(hashesCount, otherElements[i].data, &number);
-                }
-            }
+            // the number strings must be different, and both be written with the same padding
+            const string& thisNumber = _imp->orderedElements[i].data;
+            const string& otherNumber = otherElements[i].data;
+            bool isOK = ( thisNumber != otherNumber ) && samePaddingPossible(thisNumber, otherNumber);
 
             if (isOK) {
                 if (*numberIndexToVary == -1) {
