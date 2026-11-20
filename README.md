@@ -14,7 +14,10 @@ more digits are matched if they have no leading zero). %d matches numbers withou
 
 - \#\#\# : Same as %0Nd, where N is the number of "#" characters, e.g. #### is %04d.
 
-Negative frame numbers are written and matched as printf does: frame -5 is "-005" with %04d or ####.
+Negative frame numbers are written and matched as printf does: frame -5 is "-005" with %04d or ####
+(older versions wrote "00-5"). A '-' right before a frame number variable is read as its sign:
+img###.exr matches img-01.exr as frame -1. Paddings wider than 64 (%065d) and negative paddings (%0-5d)
+make the pattern invalid: generateFileNameFromPattern() throws std::invalid_argument.
 
 - %v: indicates that a short view name should be present instead of the variable.
 This means either "l" for the left view and "r" for the right view, or "view<N>" for view number N.
@@ -31,6 +34,8 @@ the same "pattern".
 2) Given a "pattern" generate file names for a given frame number and view.
 
 3) Given a files list, tries to group files under similar patterns.
+The frame number is the last number of the file name that varies, not counting the extension
+(IMG_0001.CR2 is frame 1 of IMG_####.CR2).
 
 
 
