@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -247,6 +248,38 @@ testUtf8()
     CHECK_EQ( std::string("img_R.exr"), generateFileNameFromPattern("img_%v.exr", views, 1, 1) );
 }
 
+static void
+testIntOverflow()
+{
+    // numbers that don't fit in an int are not frame numbers (std::atoi overflow is undefined,
+    // and in practice wrapped 4294967297 to frame 1)
+    StringList files;
+    files.push_back("t_4294967297.exr");
+    files.push_back("t_1.exr");
+    files.push_back("t_99999999999999999999.exr");
+    SequenceFromPattern seq = parse("t_#.exr", files);
+    CHECK_EQ( 1, (int)seq.size() );
+    CHECK_EQ( std::string("t_1.exr"), seq[1][0] );
+    files.clear();
+    files.push_back("t_2147483647.exr"); // INT_MAX is fine
+    seq = parse("t_#.exr", files);
+    CHECK( seq.find(2147483647) != seq.end() );
+    CHECK_EQ( 0, (int)parse("t_%099999999999d.exr", files).size() );
+
+    SequenceFromFiles s( FileNameContent("t_1.exr"), false );
+    CHECK( !s.tryInsertFile( FileNameContent("t_4294967298.exr") ) );
+    CHECK_EQ( 1, s.getLastFrame() );
+
+    std::vector<std::string> views;
+    bool thrown = false;
+    try {
+        generateFileNameFromPattern("t_%099999999999d.exr", views, 1, 0);
+    } catch (const std::invalid_argument&) {
+        thrown = true;
+    }
+    CHECK(thrown);
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -286,6 +319,7 @@ main()
     testFileNameContent();
     testSequenceFromFiles();
     testUtf8();
+    testIntOverflow();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

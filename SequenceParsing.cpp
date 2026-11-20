@@ -393,19 +393,32 @@ removeAllOccurences(string& str,
     }
 }
 
-static int
-stringToInt(const string& str)
+/**
+ * @brief Converts a string of ASCII digits to a non-negative int.
+ * Returns false if the string is empty, contains anything else than digits,
+ * or if the number does not fit in an int (std::atoi has undefined behaviour then).
+ **/
+static bool
+stringToInt(const string& str,
+            int* ret)
 {
-    //    stringstream ss(str);
-    //    int ret = 0;
-    //    try {
-    //        ss >> ret;
-    //    } catch (const std::ios_base::failure& e) {
-    //        return 0;
-    //    }
+    if ( str.empty() ) {
+        return false;
+    }
+    int value = 0;
+    for (size_t i = 0; i < str.size(); ++i) {
+        if ( !isAsciiDigit(str[i]) ) {
+            return false;
+        }
+        int digit = str[i] - '0';
+        if ( value > (INT_MAX - digit) / 10 ) {
+            return false;
+        }
+        value = value * 10 + digit;
+    }
+    *ret = value;
 
-    //    return ret;
-    return std::atoi( str.c_str() );
+    return true;
 }
 
 static string
@@ -467,7 +480,9 @@ numberMatchDigits(int digitsCount,
 {
     assert(digitsCount > 0);
 
-    *frameNumber = stringToInt(number);
+    if ( !stringToInt(number, frameNumber) ) {
+        return false;
+    }
 
     if ( (int)number.size() == digitsCount ) {
         return true;
@@ -548,8 +563,7 @@ matchesView(bool longView,
             for (size_t it = 4; it < mid.size() && isAsciiDigit(mid[it]); ++it) {
                 viewNoStr.push_back(mid[it]);
             }
-            if ( !viewNoStr.empty() ) {
-                *viewNumber = stringToInt(viewNoStr);
+            if ( stringToInt(viewNoStr, viewNumber) ) {
                 *endPos = startingPos + 4 + viewNoStr.size();
             } else {
                 return false;
@@ -576,8 +590,7 @@ matchesView(bool longView,
                 viewNoStr.push_back(mid[it]);
             }
 
-            if ( !viewNoStr.empty() ) {
-                *viewNumber = stringToInt(viewNoStr);
+            if ( stringToInt(viewNoStr, viewNumber) ) {
                 *endPos = startingPos + 4 + viewNoStr.size();
             } else {
                 return false;
@@ -665,7 +678,9 @@ matchesPattern_v2(const string& filename,
             /// We also treat the view %v and %V cases here
             if ( ( printfIt < pattern.size() ) && ( asciiToLower(pattern[printfIt]) == 'd') ) {
                 foundPrintFLikeSyntax = true;
-                printfDigitCount = stringToInt(digitStr);
+                if ( !digitStr.empty() && !stringToInt(digitStr, &printfDigitCount) ) {
+                    return false;
+                }
             } else if ( ( printfIt < pattern.size() ) && ( pattern[printfIt] == 'V') ) {
                 foundLongView = true;
             } else if ( ( printfIt < pattern.size() ) && ( pattern[printfIt] == 'v') ) {
@@ -1336,7 +1351,10 @@ generateFileNameFromPattern(const string& pattern,
             string digitsCountStr = variable;
             removeAllOccurences(digitsCountStr, "%0");
             removeAllOccurences(digitsCountStr, "d");
-            int digitsCount = stringToInt(digitsCountStr);
+            int digitsCount = 0;
+            if ( !digitsCountStr.empty() && !stringToInt(digitsCountStr, &digitsCount) ) {
+                throw std::invalid_argument("Unrecognized pattern: " + pattern);
+            }
             string frameNoStr = stringFromInt(frameNumber);
             //prepend with extra 0's
             while ( (int)frameNoStr.size() < digitsCount ) {
@@ -1421,8 +1439,9 @@ SequenceFromFiles::tryInsertFile(const FileNameContent& file,
         _imp->frameNumberStringIndex = file.getPotentialFrameNumbersCount() - 1;
         int frameNumber = -1;
         bool ok = file.getNumberByIndex(_imp->frameNumberStringIndex, &frameNumberStr);
-        if (ok) {
-            frameNumber = stringToInt(frameNumberStr);
+        if ( ok && !stringToInt(frameNumberStr, &frameNumber) ) {
+            // the number is too large to be a frame number
+            frameNumber = -1;
         }
         _imp->filesMap.insert( make_pair(frameNumber, file) );
 
@@ -1454,10 +1473,12 @@ SequenceFromFiles::tryInsertFile(const FileNameContent& file,
             insert = true;
 
             string frameNumberStr;
-            bool ok = file.getNumberByIndex(_imp->frameNumberStringIndex, &frameNumberStr);
+            int frameNumber = -1;
+            bool ok = file.getNumberByIndex(_imp->frameNumberStringIndex, &frameNumberStr) &&
+                      stringToInt(frameNumberStr, &frameNumber);
             if (ok) {
                 pair<map<int, FileNameContent>::iterator, bool> success =
-                    _imp->filesMap.insert( make_pair(stringToInt(frameNumberStr), file) );
+                    _imp->filesMap.insert( make_pair(frameNumber, file) );
 
                 ///Insert might have failed because we didn't check prior to this whether the file was already
                 ///present or not.
