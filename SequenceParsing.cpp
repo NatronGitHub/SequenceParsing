@@ -1458,8 +1458,10 @@ SequenceFromFiles::tryInsertFile(const FileNameContent& file,
         int frameNumber = -1;
         bool ok = file.getNumberByIndex(_imp->frameNumberStringIndex, &frameNumberStr);
         if ( ok && !stringToInt(frameNumberStr, &frameNumber) ) {
-            // the number is too large to be a frame number
+            // the number is too large to be a frame number: this file has no frame number,
+            // and no other file can join it
             frameNumber = -1;
+            _imp->frameNumberStringIndex = -1;
         }
         _imp->filesMap.insert( make_pair(frameNumber, file) );
 

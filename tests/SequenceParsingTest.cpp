@@ -563,6 +563,17 @@ testNumberInExtension()
     CHECK_EQ( 1, noext.getPotentialFrameNumbersCount() );
 }
 
+static void
+testOverflowFirstFile()
+{
+    // a first file whose number doesn't fit in an int has no frame number: nothing joins it
+    SequenceFromFiles seq( FileNameContent("/d/t_4294967297.exr"), false );
+    CHECK( !seq.tryInsertFile( FileNameContent("/d/t_1.exr") ) );
+    CHECK( !seq.tryInsertFile( FileNameContent("/d/t_4294967298.exr") ) );
+    CHECK( seq.isSingleFile() );
+    CHECK_EQ( std::string("/d/t_4294967297.exr"), seq.generateValidSequencePattern() );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -615,6 +626,7 @@ main()
     testSizeEstimation();
     testIncompatibleOtherNumber();
     testNumberInExtension();
+    testOverflowFirstFile();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif
