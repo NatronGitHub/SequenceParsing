@@ -445,6 +445,27 @@ testSequencePadding()
     CHECK_EQ( std::string("/d/img###.png"), seq3.generateValidSequencePattern() );
 }
 
+static void
+testCopies()
+{
+    // copies must be complete
+    FileNameContent c("/d/img_0042.exr");
+    FileNameContent copy(c);
+    CHECK_EQ( 2, c.getLeadingZeroes() );
+    CHECK_EQ( 2, copy.getLeadingZeroes() );
+    FileNameContent assigned("x");
+    assigned = c;
+    CHECK_EQ( 2, assigned.getLeadingZeroes() );
+    CHECK_EQ( std::string("/d/img_0042.exr"), assigned.absoluteFileName() );
+
+    SequenceFromFiles seq(false);
+    insertAll( seq, numbered("/d/img_", 1, 3, 4, ".exr") );
+    SequenceFromFiles seqCopy(seq);
+    CHECK_EQ( std::string("/d/img_####.exr"), seqCopy.generateValidSequencePattern() );
+    CHECK_EQ( 3, seqCopy.count() );
+    CHECK( seqCopy.tryInsertFile( FileNameContent("/d/img_0004.exr") ) );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -491,6 +512,7 @@ main()
     testGlobalLocale();
     testUnpaddedWithZero();
     testSequencePadding();
+    testCopies();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

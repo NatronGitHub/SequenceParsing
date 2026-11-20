@@ -971,6 +971,7 @@ FileNameContent::operator=(const FileNameContent& other)
     _imp->filePath = other._imp->filePath;
     _imp->extension = other._imp->extension;
     _imp->generatedPattern = other._imp->generatedPattern;
+    _imp->leadingZeroes = other._imp->leadingZeroes;
 }
 
 int
