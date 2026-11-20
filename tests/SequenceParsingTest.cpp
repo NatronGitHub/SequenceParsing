@@ -298,6 +298,39 @@ testPrintfNoPadding()
     CHECK_EQ( 0, (int)parse("img%d.jpg", files).size() );
 }
 
+static void
+testViewsRoundTrip()
+{
+    // files written with generateFileNameFromPattern() must be found with the same pattern
+    std::vector<std::string> views;
+    views.push_back("Left");
+    views.push_back("Right");
+    const char* patterns[] = { "shot_#.%V.exr", "shot_%v.###.exr", "%V/shot_%v_%04d.exr" };
+    for (int p = 0; p < 3; ++p) {
+        StringList files;
+        for (int f = 1; f <= 3; ++f) {
+            for (int v = 0; v < 2; ++v) {
+                std::string name = generateFileNameFromPattern(patterns[p], views, f, v);
+                removePath(name);
+                files.push_back(name);
+            }
+        }
+        std::string pattern(patterns[p]);
+        removePath(pattern);
+        SequenceFromPattern seq = parse(pattern, files);
+        CHECK_EQ( 3, (int)seq.size() );
+        CHECK_EQ( 2, (int)seq[1].size() );
+        CHECK_EQ( files[1], seq[1][1] );
+    }
+    StringList files;
+    files.push_back("a.LEFT.exr");
+    files.push_back("a.View3.exr");
+    SequenceFromPattern seq = parse("a.%V.exr", files);
+    CHECK_EQ( 1, (int)seq.size() );
+    CHECK_EQ( 2, (int)seq[-1].size() );
+    CHECK_EQ( std::string("a.View3.exr"), seq[-1][3] );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -339,6 +372,7 @@ main()
     testUtf8();
     testIntOverflow();
     testPrintfNoPadding();
+    testViewsRoundTrip();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

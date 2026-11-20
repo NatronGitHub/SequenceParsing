@@ -545,6 +545,26 @@ matchesPrintfLikeSyntax(int digitsCount,
     return numberMatchDigits(digitsCount, variable, frameNumber);
 }
 
+// Does str contain prefix at position pos, ignoring ASCII case?
+static bool
+matchesNoCase(const string& str,
+              size_t pos,
+              const char* prefix)
+{
+    for (; *prefix; ++prefix, ++pos) {
+        if ( ( pos >= str.size() ) || ( asciiToLower(str[pos]) != *prefix ) ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*
+   %v matches "l", "r" or "view<N>", %V matches "left", "right" or "view<N>".
+   The match ignores case, because generateFileNameFromPattern() writes
+   "L"/"R" for %v and the view name itself (e.g. "Left") for %V.
+ */
 static bool
 matchesView(bool longView,
             const string& filename,
@@ -552,61 +572,32 @@ matchesView(bool longView,
             size_t *endPos,
             int* viewNumber)
 {
-    string mid = filename.substr(startingPos);
-    if (!longView) {
-        if ( startsWith(mid, "r") ) {
-            *viewNumber = 1;
-            *endPos = startingPos + 1;
-
-            return true;
-        } else if ( startsWith(mid, "l") ) {
-            *viewNumber = 0;
-            *endPos = startingPos + 1;
-
-            return true;
-        } else if ( startsWith(mid, "view") ) {
-            string viewNoStr;
-            for (size_t it = 4; it < mid.size() && isAsciiDigit(mid[it]); ++it) {
-                viewNoStr.push_back(mid[it]);
-            }
-            if ( stringToInt(viewNoStr, viewNumber) ) {
-                *endPos = startingPos + 4 + viewNoStr.size();
-            } else {
-                return false;
-            }
-
-            return true;
-        }
-
-        return false;
-    } else {
-        if ( startsWith(mid, "right") ) {
-            *viewNumber = 1;
-            *endPos = startingPos + 5;
-
-            return true;
-        } else if ( startsWith(mid, "left") ) {
-            *viewNumber = 0;
-            *endPos = startingPos + 4;
-
-            return true;
-        } else if ( startsWith(mid, "view") ) {
-            string viewNoStr;
-            for (size_t it = 4; it < mid.size() && isAsciiDigit(mid[it]); ++it) {
-                viewNoStr.push_back(mid[it]);
-            }
-
-            if ( stringToInt(viewNoStr, viewNumber) ) {
-                *endPos = startingPos + 4 + viewNoStr.size();
-            } else {
-                return false;
-            }
-
-            return true;
-        }
-
-        return false;
+    const char* names[2] = { "l", "r" };
+    if (longView) {
+        names[0] = "left";
+        names[1] = "right";
     }
+    for (int v = 0; v < 2; ++v) {
+        if ( matchesNoCase(filename, startingPos, names[v]) ) {
+            *viewNumber = v;
+            *endPos = startingPos + std::char_traits<char>::length(names[v]);
+
+            return true;
+        }
+    }
+    if ( matchesNoCase(filename, startingPos, "view") ) {
+        string viewNoStr;
+        for (size_t it = startingPos + 4; it < filename.size() && isAsciiDigit(filename[it]); ++it) {
+            viewNoStr.push_back(filename[it]);
+        }
+        if ( stringToInt(viewNoStr, viewNumber) ) {
+            *endPos = startingPos + 4 + viewNoStr.size();
+
+            return true;
+        }
+    }
+
+    return false;
 } // matchesView
 
 static bool
