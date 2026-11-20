@@ -221,6 +221,32 @@ testSequenceFromFiles()
     CHECK_EQ( std::string("a_###.png (  1-2 / 5 ) "), holes.generateUserFriendlySequencePattern() );
 }
 
+static void
+testUtf8()
+{
+    // UTF-8 file names: their non-ASCII bytes are negative chars where char is signed,
+    // and must not be passed to the <cctype> functions.
+    const std::string ete("\xC3\xA9t\xC3\xA9_"); // "été_"
+    StringList files = numbered(ete, 1, 3, 4, ".exr");
+    files.push_back("img\xC3\xA9.exr");
+    files.push_back(ete + "\xC3\xA9.exr");
+    CHECK_EQ( 3, (int)parse(ete + "####.exr", files).size() );
+    CHECK_EQ( 0, (int)parse("img####.exr", files).size() );
+    CHECK_EQ( 0, (int)parse("img%04d.exr", files).size() );
+    CHECK_EQ( 0, (int)parse("img%v.exr", files).size() );
+
+    FileNameContent c("/d/" + ete + "0012.exr");
+    CHECK_EQ( 1, c.getPotentialFrameNumbersCount() );
+    CHECK_EQ( ete + "####0.exr", c.getFilePattern(4) );
+
+    // %v uses the whole first character of the view name, not its first byte
+    std::vector<std::string> views;
+    views.push_back("\xC3\x89" "cran"); // "Écran"
+    views.push_back("right");
+    CHECK_EQ( std::string("img_\xC3\x89.exr"), generateFileNameFromPattern("img_%v.exr", views, 1, 0) );
+    CHECK_EQ( std::string("img_R.exr"), generateFileNameFromPattern("img_%v.exr", views, 1, 1) );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -259,6 +285,7 @@ main()
     testGenerate();
     testFileNameContent();
     testSequenceFromFiles();
+    testUtf8();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

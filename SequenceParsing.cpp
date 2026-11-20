@@ -22,7 +22,6 @@
 #include <cassert>
 #include <cmath>
 #include <climits>
-#include <cctype> // isdigit(c)
 #include <cstddef>
 #ifdef DEBUG
 #include <iostream>
@@ -30,7 +29,6 @@
 #include <stdexcept>
 #include <sstream>
 #include <fstream>
-#include <locale>
 #include <istream>
 #include <algorithm>
 #include <memory>
@@ -67,6 +65,52 @@ using std::make_pair;
 using namespace SequenceParsing;
 
 namespace  {
+
+// Locale-independent ASCII character classes.
+// Never pass a plain char to the <cctype> functions: bytes of UTF-8 sequences are
+// negative when char is signed, which is undefined behaviour (and an assertion
+// failure with the MSVC debug runtime).
+static inline bool
+isAsciiDigit(char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+static inline bool
+isAsciiAlpha(char c)
+{
+    return ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' );
+}
+
+static inline char
+asciiToLower(char c)
+{
+    return ( c >= 'A' && c <= 'Z' ) ? char(c - 'A' + 'a') : c;
+}
+
+static inline char
+asciiToUpper(char c)
+{
+    return ( c >= 'a' && c <= 'z' ) ? char(c - 'a' + 'A') : c;
+}
+
+// Returns the first character (code point) of a UTF-8 string, upper-cased if it is ASCII.
+static string
+firstCharacterUpper(const string& str)
+{
+    if ( str.empty() ) {
+        return string();
+    }
+    size_t len = 1;
+    // include the UTF-8 continuation bytes (10xxxxxx)
+    while ( len < str.size() && ( ( (unsigned char)str[len] & 0xC0 ) == 0x80 ) ) {
+        ++len;
+    }
+    string ret = str.substr(0, len);
+    ret[0] = asciiToUpper(ret[0]);
+
+    return ret;
+}
 
 #if (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
 static wstring
@@ -278,7 +322,7 @@ extractCommonPartsAndVariablesFromPattern(const string& patternUnPathedWithoutEx
             variable.push_back(c);
             ///if we're after a % character, and c is a letter different than d or v or V
             ///or c is digit different than 0, then we don't support this printf like style.
-            if ( std::isalpha( c, std::locale() ) ||
+            if ( isAsciiAlpha(c) ||
                  ( ( printfLikeArgIndex == 1) && ( c != '0') ) ) {
                 commonParts->push_back(variable);
                 commonCharactersFound += variable.size();
@@ -452,7 +496,7 @@ matchesHashTag(int sharpCount,
     string variable;
     size_t variableIt = startingPos;
     for (variableIt = startingPos;
-         variableIt < filename.size() && std::isdigit(filename[variableIt]);
+         variableIt < filename.size() && isAsciiDigit(filename[variableIt]);
          ++variableIt) {
         variable.push_back(filename[variableIt]);
     }
@@ -471,7 +515,7 @@ matchesPrintfLikeSyntax(int digitsCount,
     string variable;
     size_t variableIt;
     for (variableIt = startingPos;
-         variableIt < filename.size() && std::isdigit(filename[variableIt]);
+         variableIt < filename.size() && isAsciiDigit(filename[variableIt]);
          ++variableIt) {
         variable.push_back(filename[variableIt]);
     }
@@ -501,7 +545,7 @@ matchesView(bool longView,
             return true;
         } else if ( startsWith(mid, "view") ) {
             string viewNoStr;
-            for (size_t it = 4; it < mid.size() && std::isdigit(mid[it]); ++it) {
+            for (size_t it = 4; it < mid.size() && isAsciiDigit(mid[it]); ++it) {
                 viewNoStr.push_back(mid[it]);
             }
             if ( !viewNoStr.empty() ) {
@@ -528,7 +572,7 @@ matchesView(bool longView,
             return true;
         } else if ( startsWith(mid, "view") ) {
             string viewNoStr;
-            for (size_t it = 4; it < mid.size() && std::isdigit(mid[it]); ++it) {
+            for (size_t it = 4; it < mid.size() && isAsciiDigit(mid[it]); ++it) {
                 viewNoStr.push_back(mid[it]);
             }
 
@@ -611,7 +655,7 @@ matchesPattern_v2(const string& filename,
             size_t printfIt;
             string digitStr;
             for (printfIt = patternIt + 1;
-                 printfIt < pattern.size() && std::isdigit(pattern[printfIt]);
+                 printfIt < pattern.size() && isAsciiDigit(pattern[printfIt]);
                  ++printfIt) {
                 digitStr.push_back(pattern[printfIt]);
                 ++printfLikeVariableSize;
@@ -619,7 +663,7 @@ matchesPattern_v2(const string& filename,
 
             ///they are no more digit after the '%', check if this is correctly terminating by a 'd' character.
             /// We also treat the view %v and %V cases here
-            if ( ( printfIt < pattern.size() ) && ( std::tolower(pattern[printfIt]) == 'd') ) {
+            if ( ( printfIt < pattern.size() ) && ( asciiToLower(pattern[printfIt]) == 'd') ) {
                 foundPrintFLikeSyntax = true;
                 printfDigitCount = stringToInt(digitStr);
             } else if ( ( printfIt < pattern.size() ) && ( pattern[printfIt] == 'V') ) {
@@ -813,12 +857,11 @@ FileNameContent::FileNameContent(const string& absoluteFilename)
     _imp->absoluteFileName = absoluteFilename;
     _imp->filename = absoluteFilename;
     _imp->filePath = removePath(_imp->filename);
-    std::locale loc;
     string lastNumberStr;
     string lastTextPart;
     for (size_t i = 0; i < _imp->filename.size(); ++i) {
         const char& c = _imp->filename[i];
-        if ( std::isdigit(c, loc) ) {
+        if ( isAsciiDigit(c) ) {
             lastNumberStr += c;
             if ( !lastTextPart.empty() ) {
                 _imp->orderedElements.push_back( FileNameElement(lastTextPart, FileNameElement::TEXT) );
@@ -1111,7 +1154,7 @@ FileNameContent::generatePatternWithFrameNumberAtIndex(int index,
             ///assert that the end of the tag is composed of  a digit
 
             if ( endTagPos < indexedPattern.size() ) {
-                assert( std::isdigit(indexedPattern[endTagPos]) );
+                assert( isAsciiDigit(indexedPattern[endTagPos]) );
             }
 
             if (index == numbersCount) {
@@ -1279,7 +1322,7 @@ generateFileNameFromPattern(const string& pattern,
         } else if (variable.find("%v") != string::npos) {
             string viewNumberStr;
             if ( ( viewNumber >= 0) && ( viewNumber < (int)viewNames.size() ) ) {
-                viewNumberStr.push_back( std::toupper(viewNames[viewNumber][0]) );
+                viewNumberStr = firstCharacterUpper(viewNames[viewNumber]);
             }
 
 
