@@ -927,8 +927,21 @@ FileNameContent::FileNameContent(const string& absoluteFilename)
     _imp->filename = absoluteFilename;
     _imp->filePath = removePath(_imp->filename);
     // Numbers in the extension (IMG_0001.CR2, .jp2, .mp4, .3fr) are not frame numbers:
-    // they are part of the text after the last '.'.
-    const size_t extensionDotPos = _imp->filename.find_last_of('.');
+    // they are part of the text after the last '.'. An extension made only of digits
+    // (img.0001, img.0002...) is the frame number itself.
+    size_t extensionDotPos = _imp->filename.find_last_of('.');
+    if (extensionDotPos != string::npos) {
+        bool allDigits = true;
+        for (size_t i = extensionDotPos + 1; i < _imp->filename.size(); ++i) {
+            if ( !isAsciiDigit(_imp->filename[i]) ) {
+                allDigits = false;
+                break;
+            }
+        }
+        if (allDigits) {
+            extensionDotPos = string::npos;
+        }
+    }
     string lastNumberStr;
     string lastTextPart;
     for (size_t i = 0; i < _imp->filename.size(); ++i) {

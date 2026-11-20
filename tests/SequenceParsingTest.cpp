@@ -612,6 +612,28 @@ testIntLimitsRoundTrip()
     CHECK( seq.find(INT_MAX) != seq.end() );
 }
 
+static void
+testAllDigitExtension()
+{
+    // an extension made only of digits is the frame number (img.0001, img.0002...)
+    SequenceFromFiles seq(false);
+    CHECK_EQ( 3, insertAll( seq, numbered("/d/img.", 1, 3, 4, "") ) );
+    CHECK_EQ( std::string("/d/img.####"), seq.generateValidSequencePattern() );
+    FileNameContent c("/d/img.0010");
+    CHECK_EQ( 1, c.getPotentialFrameNumbersCount() );
+    CHECK_EQ( 2, c.getLeadingZeroes() );
+    std::string pattern;
+    // as in Natron's conversion of old file keyframes (KnobSerialization)
+    c.generatePatternWithFrameNumberAtIndex(c.getPotentialFrameNumbersCount() - 1, c.getLeadingZeroes() + 1, &pattern);
+    CHECK_EQ( std::string("/d/img.###"), pattern ); // same as before 7ca1e46
+    FileNameContent c2("/d/shot_v2.0010");
+    c2.generatePatternWithFrameNumberAtIndex(c2.getPotentialFrameNumbersCount() - 1, 4, &pattern);
+    CHECK_EQ( std::string("/d/shot_v2.####"), pattern );
+    // and the generated names are as before
+    std::vector<std::string> views;
+    CHECK_EQ( std::string("/d/img.0010"), generateFileNameFromPattern("/d/img.####", views, 10, 0) );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -667,6 +689,7 @@ main()
     testOverflowFirstFile();
     testMaxPadding();
     testIntLimitsRoundTrip();
+    testAllDigitExtension();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

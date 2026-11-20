@@ -34,8 +34,9 @@ the same "pattern".
 2) Given a "pattern" generate file names for a given frame number and view.
 
 3) Given a files list, tries to group files under similar patterns.
-The frame number is the last number of the file name that varies, not counting the extension
-(IMG_0001.CR2 is frame 1 of IMG_####.CR2).
+The frame number is the last number of the file name that varies, not counting the digits of an
+extension that also has other characters (IMG_0001.CR2 is frame 1 of IMG_####.CR2). An extension
+made only of digits is the frame number itself (img.0001, img.0002... is img.####).
 
 
 
