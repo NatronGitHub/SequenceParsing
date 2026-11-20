@@ -542,6 +542,27 @@ testIncompatibleOtherNumber()
     CHECK_EQ( std::string("/d/a08_###.exr"), seq.generateValidSequencePattern() );
 }
 
+static void
+testNumberInExtension()
+{
+    // numbers in the extension are not frame numbers
+    const char* exts[] = { ".CR2", ".jp2", ".cr3", ".j2k", ".3fr", ".x3f", ".mp4" };
+    for (int e = 0; e < 7; ++e) {
+        SequenceFromFiles seq(false);
+        CHECK_EQ( 3, insertAll( seq, numbered("/d/IMG_", 1, 3, 4, exts[e]) ) );
+        CHECK_EQ( std::string("/d/IMG_####") + exts[e], seq.generateValidSequencePattern() );
+        CHECK_EQ( 3, (int)parse( "IMG_####" + std::string(exts[e]), numbered("IMG_", 1, 3, 4, exts[e]) ).size() );
+    }
+    FileNameContent c("/d/clip.mp4");
+    CHECK_EQ( 0, c.getPotentialFrameNumbersCount() );
+    CHECK_EQ( std::string("mp4"), c.getExtension() );
+    CHECK_EQ( std::string("clip.mp4"), c.getFilePattern(3) );
+    SequenceFromFiles single( FileNameContent("/d/a.mp3"), false );
+    CHECK( !single.tryInsertFile( FileNameContent("/d/a.mp4") ) );
+    FileNameContent noext("/d/img0001");
+    CHECK_EQ( 1, noext.getPotentialFrameNumbersCount() );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -593,6 +614,7 @@ main()
     testPatternAtIndex();
     testSizeEstimation();
     testIncompatibleOtherNumber();
+    testNumberInExtension();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif
