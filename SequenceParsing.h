@@ -29,12 +29,9 @@
 
 namespace SequenceParsing {
 
-#if __cplusplus >= 201103L
+// SequenceParsing::auto_ptr is kept as an alias for API compatibility.
 template <typename T>
 using auto_ptr = std::unique_ptr<T>;
-#else
-using std::auto_ptr;
-#endif
 
 typedef std::vector<std::string> StringList;
 

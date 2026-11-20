@@ -536,12 +536,22 @@ matchesFrameNumber(int digitsCount,
         return numberMatchDigits(digitsCount, variable, frameNumber);
     }
     int absFrameNumber;
-    if ( !numberMatchDigits(digitsCount - 1, variable, &absFrameNumber) || (absFrameNumber == 0) ) {
-        return false;
-    }
-    *frameNumber = -absFrameNumber;
+    if ( numberMatchDigits(digitsCount - 1, variable, &absFrameNumber) ) {
+        if (absFrameNumber == 0) {
+            return false; // printf never writes -0
+        }
+        *frameNumber = -absFrameNumber;
 
-    return true;
+        return true;
+    }
+    // INT_MIN: its absolute value doesn't fit in an int
+    if ( (variable == "2147483648") && ( (int)variable.size() + 1 >= digitsCount ) ) {
+        *frameNumber = INT_MIN;
+
+        return true;
+    }
+
+    return false;
 }
 
 /*
@@ -1617,7 +1627,6 @@ SequenceFromFiles::generateUserFriendlySequencePatternFromValidPattern(const str
         ++next;
     }
     while ( first != _imp->filesMap.end() ) {
-        int breakCounter = 0;
         while ( next != _imp->filesMap.end() && cur != _imp->filesMap.end() && next->first == (cur->first + 1) ) {
             if ( next != _imp->filesMap.end() ) {
                 ++next;
@@ -1625,7 +1634,6 @@ SequenceFromFiles::generateUserFriendlySequencePatternFromValidPattern(const str
             if ( cur != _imp->filesMap.end() ) {
                 ++cur;
             }
-            ++breakCounter;
         }
         if ( cur != _imp->filesMap.end() ) {
             chunks.push_back( make_pair(first->first, cur->first) );

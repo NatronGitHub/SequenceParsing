@@ -597,6 +597,21 @@ testMaxPadding()
     CHECK_EQ( 0, (int)parse("%0999999999d.exr", files).size() );
 }
 
+static void
+testIntLimitsRoundTrip()
+{
+    // INT_MIN and INT_MAX are read back
+    std::vector<std::string> views;
+    StringList files;
+    files.push_back( generateFileNameFromPattern("img.####.exr", views, INT_MIN, 0) );
+    files.push_back( generateFileNameFromPattern("img.####.exr", views, INT_MAX, 0) );
+    files.push_back("img.-2147483649.exr");
+    SequenceFromPattern seq = parse("img.####.exr", files);
+    CHECK_EQ( 2, (int)seq.size() );
+    CHECK( seq.find(INT_MIN) != seq.end() );
+    CHECK( seq.find(INT_MAX) != seq.end() );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -651,6 +666,7 @@ main()
     testNumberInExtension();
     testOverflowFirstFile();
     testMaxPadding();
+    testIntLimitsRoundTrip();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif
