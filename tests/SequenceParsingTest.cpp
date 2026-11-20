@@ -501,6 +501,32 @@ testPatternAtIndex()
     CHECK_EQ( std::string("1_2_3_4_5_6_7_8_9_10_##_12.exr"), pattern );
 }
 
+static void
+testSizeEstimation()
+{
+    // size estimation of files that can't be read
+    SequenceFromFiles seq( FileNameContent("/nonexistent-dir/img_0001.exr"), true );
+    seq.tryInsertFile( FileNameContent("/nonexistent-dir/img_0002.exr") );
+    CHECK_EQ( 2, seq.count() );
+    CHECK_EQ( 0ULL, seq.getEstimatedTotalSize() );
+#if !defined(_WIN32)
+    char tmpl[] = "/tmp/SequenceParsingSize.XXXXXX";
+    char* dir = mkdtemp(tmpl);
+    CHECK(dir != NULL);
+    if (dir) {
+        std::string f = std::string(dir) + "/img_0001.exr";
+        {
+            std::ofstream out( f.c_str() );
+            out << "12345";
+        }
+        SequenceFromFiles s2( FileNameContent(f), true );
+        CHECK_EQ( 5ULL, s2.getEstimatedTotalSize() );
+        std::remove( f.c_str() );
+        rmdir(dir);
+    }
+#endif
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -550,6 +576,7 @@ main()
     testCopies();
     testFilePatternNumHashes();
     testPatternAtIndex();
+    testSizeEstimation();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

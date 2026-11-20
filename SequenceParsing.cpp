@@ -27,7 +27,6 @@
 #include <iostream>
 #endif
 #include <stdexcept>
-#include <fstream>
 #include <istream>
 #include <algorithm>
 #include <memory>
@@ -183,9 +182,12 @@ getFileSize(const string& filename)
 
     return (std::size_t)file_size.QuadPart;
 #else // !(defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
-    std::ifstream in(filename.c_str(), std::ifstream::ate | std::ifstream::binary);
+    struct stat st;
+    if ( (stat(filename.c_str(), &st) != 0) || (st.st_size < 0) ) {
+        return 0; // the size is just a hint
+    }
 
-    return in.tellg();
+    return (std::size_t)st.st_size;
 #endif // (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
 }
 
