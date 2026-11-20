@@ -480,6 +480,27 @@ testFilePatternNumHashes()
     CHECK_EQ( std::string("/d/a1_b####.exr"), pattern );
 }
 
+static void
+testPatternAtIndex()
+{
+    // the frame number is not always the last number
+    FileNameContent c("/d/shot1_v22_0003.exr");
+    std::string pattern;
+    c.generatePatternWithFrameNumberAtIndex(0, 2, &pattern);
+    CHECK_EQ( std::string("/d/shot##_v22_0003.exr"), pattern );
+    c.generatePatternWithFrameNumberAtIndex(1, 2, &pattern);
+    CHECK_EQ( std::string("/d/shot1_v##_0003.exr"), pattern );
+    c.generatePatternWithFrameNumberAtIndex(2, 4, &pattern);
+    CHECK_EQ( std::string("/d/shot1_v22_####.exr"), pattern );
+    // more than 10 numbers: the pattern index has two digits
+    FileNameContent many("1_2_3_4_5_6_7_8_9_10_11_12.exr");
+    CHECK_EQ( 12, many.getPotentialFrameNumbersCount() );
+    many.generatePatternWithFrameNumberAtIndex(11, 2, &pattern);
+    CHECK_EQ( std::string("1_2_3_4_5_6_7_8_9_10_11_##.exr"), pattern );
+    many.generatePatternWithFrameNumberAtIndex(10, 2, &pattern);
+    CHECK_EQ( std::string("1_2_3_4_5_6_7_8_9_10_##_12.exr"), pattern );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -528,6 +549,7 @@ main()
     testSequencePadding();
     testCopies();
     testFilePatternNumHashes();
+    testPatternAtIndex();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

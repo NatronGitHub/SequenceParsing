@@ -1172,42 +1172,21 @@ FileNameContent::generatePatternWithFrameNumberAtIndex(int index,
                                                        int numHashes,
                                                        string* pattern) const
 {
+    // Build the pattern from the elements: the number at index becomes numHashes '#',
+    // the other numbers are kept as they are.
+    string unpathedPattern;
     int numbersCount = 0;
-    size_t lastNumberPos = 0;
 
-    string indexedPattern = getFilePattern(numHashes);
     for (size_t i = 0; i < _imp->orderedElements.size(); ++i) {
-        if (_imp->orderedElements[i].type == FileNameElement::FRAME_NUMBER) {
-            lastNumberPos = findStr(indexedPattern, "#", 0);
-            assert(lastNumberPos != string::npos);
-
-            size_t endTagPos = lastNumberPos;
-            while (endTagPos < indexedPattern.size() && indexedPattern[endTagPos] == '#') {
-                ++endTagPos;
-            }
-
-            ///assert that the end of the tag is composed of  a digit
-
-            if ( endTagPos < indexedPattern.size() ) {
-                assert( isAsciiDigit(indexedPattern[endTagPos]) );
-            }
-
-            if (index == numbersCount) {
-                ///remove the index of the tag and keep the tag.
-                if ( endTagPos < indexedPattern.size() ) {
-                    indexedPattern.erase(endTagPos, 1);
-                }
-            } else {
-                ///if this is not the number we're interested in to keep the ###, just expand the variable
-                ///replace the whole tag with the original data
-                indexedPattern.replace(lastNumberPos, endTagPos - lastNumberPos + 1, _imp->orderedElements[i].data);
-            }
-
-            ++numbersCount;
+        const FileNameElement& e = _imp->orderedElements[i];
+        if ( (e.type == FileNameElement::FRAME_NUMBER) && (numbersCount++ == index) ) {
+            unpathedPattern.append(numHashes, '#');
+        } else {
+            unpathedPattern.append(e.data);
         }
     }
 
-    *pattern = getPath() + indexedPattern;
+    *pattern = getPath() + unpathedPattern;
 }
 
 string
