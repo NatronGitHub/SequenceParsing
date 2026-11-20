@@ -88,7 +88,7 @@ public:
      * no clue given just this filename what actually corresponds to the frame number.
      * Nb: this pattern is not an absolute path.
      **/
-    const std::string& getFilePattern(int numHashes) const;
+    std::string getFilePattern(int numHashes) const;
 
     /**
      * @brief Returns how many '0' are prepended to the frame number of the file

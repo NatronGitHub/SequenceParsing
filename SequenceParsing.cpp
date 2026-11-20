@@ -889,7 +889,6 @@ struct FileNameContentPrivate
     string filePath;     //!< the filepath
     string filename;     //!< the filename without path
     string extension;     //!< the file extension
-    string generatedPattern;
     int leadingZeroes; //!< leading zeroes for the last number seen in the file path??? why store this?
 
     FileNameContentPrivate()
@@ -898,7 +897,6 @@ struct FileNameContentPrivate
         , filePath()
         , filename()
         , extension()
-        , generatedPattern()
         , leadingZeroes(0)
     {
     }
@@ -970,7 +968,6 @@ FileNameContent::operator=(const FileNameContent& other)
     _imp->filename = other._imp->filename;
     _imp->filePath = other._imp->filePath;
     _imp->extension = other._imp->extension;
-    _imp->generatedPattern = other._imp->generatedPattern;
     _imp->leadingZeroes = other._imp->leadingZeroes;
 }
 
@@ -1016,34 +1013,31 @@ FileNameContent::getExtension() const
 /**
  * @brief Returns the file pattern found in the filename with hash characters style for frame number (i.e: ###)
  **/
-const string&
+string
 FileNameContent::getFilePattern(int numHashes) const
 {
-    if ( _imp->generatedPattern.empty() ) {
-        ///now build the generated pattern with the ordered elements.
-        int numberIndex = 0;
-        for (size_t j = 0; j < _imp->orderedElements.size(); ++j) {
-            const FileNameElement& e = _imp->orderedElements[j];
-            switch (e.type) {
-            case FileNameElement::TEXT:
-                _imp->generatedPattern.append(e.data);
-                break;
-            case FileNameElement::FRAME_NUMBER: {
-                string hashStr;
-                for (int c = 0; c < numHashes; ++c) {
-                    hashStr.push_back('#');
-                }
-                _imp->generatedPattern.append( hashStr + stringFromInt(numberIndex) );
-                ++numberIndex;
-            }
+    // Not cached: the pattern depends on numHashes, and a const method that modifies
+    // the object would not be thread-safe.
+    string pattern;
+    int numberIndex = 0;
+
+    for (size_t j = 0; j < _imp->orderedElements.size(); ++j) {
+        const FileNameElement& e = _imp->orderedElements[j];
+        switch (e.type) {
+        case FileNameElement::TEXT:
+            pattern.append(e.data);
             break;
-            default:
-                break;
-            }
+        case FileNameElement::FRAME_NUMBER:
+            pattern.append(numHashes, '#');
+            pattern.append( stringFromInt(numberIndex) );
+            ++numberIndex;
+            break;
+        default:
+            break;
         }
     }
 
-    return _imp->generatedPattern;
+    return pattern;
 }
 
 /**

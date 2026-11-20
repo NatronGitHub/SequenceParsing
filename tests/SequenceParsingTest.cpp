@@ -466,6 +466,20 @@ testCopies()
     CHECK( seqCopy.tryInsertFile( FileNameContent("/d/img_0004.exr") ) );
 }
 
+static void
+testFilePatternNumHashes()
+{
+    // getFilePattern() must not return a pattern computed for another number of hashes
+    FileNameContent c("/d/a1_b001.exr");
+    CHECK_EQ( std::string("a#0_b#1.exr"), c.getFilePattern(1) );
+    CHECK_EQ( std::string("a###0_b###1.exr"), c.getFilePattern(3) );
+    std::string pattern;
+    c.generatePatternWithFrameNumberAtIndex(1, 3, &pattern);
+    CHECK_EQ( std::string("/d/a1_b###.exr"), pattern );
+    c.generatePatternWithFrameNumberAtIndex(1, 4, &pattern);
+    CHECK_EQ( std::string("/d/a1_b####.exr"), pattern );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -513,6 +527,7 @@ main()
     testUnpaddedWithZero();
     testSequencePadding();
     testCopies();
+    testFilePatternNumHashes();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif
