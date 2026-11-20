@@ -67,6 +67,10 @@ namespace  {
 // Never pass a plain char to the <cctype> functions: bytes of UTF-8 sequences are
 // negative when char is signed, which is undefined behaviour (and an assertion
 // failure with the MSVC debug runtime).
+/// The largest padding accepted in a %0<N>d pattern: wider paddings make the pattern invalid
+/// (a padding of 999999999 would make a 1 GB file name).
+static const int kMaxPadding = 64;
+
 static inline bool
 isAsciiDigit(char c)
 {
@@ -693,7 +697,7 @@ matchesPattern_v2(const string& filename,
             /// We also treat the view %v and %V cases here
             if ( ( printfIt < pattern.size() ) && ( asciiToLower(pattern[printfIt]) == 'd') ) {
                 foundPrintFLikeSyntax = true;
-                if ( !digitStr.empty() && !stringToInt(digitStr, &printfDigitCount) ) {
+                if ( !digitStr.empty() && ( !stringToInt(digitStr, &printfDigitCount) || (printfDigitCount > kMaxPadding) ) ) {
                     return false;
                 }
             } else if ( ( printfIt < pattern.size() ) && ( pattern[printfIt] == 'V') ) {
@@ -1359,7 +1363,7 @@ generateFileNameFromPattern(const string& pattern,
             removeAllOccurences(digitsCountStr, "%0");
             removeAllOccurences(digitsCountStr, "d");
             int digitsCount = 0;
-            if ( !digitsCountStr.empty() && !stringToInt(digitsCountStr, &digitsCount) ) {
+            if ( !digitsCountStr.empty() && ( !stringToInt(digitsCountStr, &digitsCount) || (digitsCount > kMaxPadding) ) ) {
                 throw std::invalid_argument("Unrecognized pattern: " + pattern);
             }
             output.replace( lastVariablePos, variable.size(), frameNumberToString(frameNumber, digitsCount) );

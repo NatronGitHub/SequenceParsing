@@ -19,3 +19,5 @@ else()
     target_compile_options(SequenceParsingTest PRIVATE -Wall -Wextra)
 endif()
 add_test(NAME SequenceParsingTest COMMAND SequenceParsingTest)
+# a regression in the padding code may hang instead of failing
+set_tests_properties(SequenceParsingTest PROPERTIES TIMEOUT 60)

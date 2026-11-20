@@ -574,6 +574,29 @@ testOverflowFirstFile()
     CHECK_EQ( std::string("/d/t_4294967297.exr"), seq.generateValidSequencePattern() );
 }
 
+static void
+testMaxPadding()
+{
+    // paddings wider than 64 make the pattern invalid (a %0999999999d name would be 1 GB)
+    std::vector<std::string> views;
+    CHECK_EQ( std::string(63, '0') + "7.exr", generateFileNameFromPattern("%064d.exr", views, 7, 0) );
+    const char* invalid[] = { "%065d.exr", "%0999999999d.exr", "%0-5d.exr" };
+    for (int i = 0; i < 3; ++i) {
+        bool thrown = false;
+        try {
+            generateFileNameFromPattern(invalid[i], views, 7, 0);
+        } catch (const std::invalid_argument&) {
+            thrown = true;
+        }
+        CHECK(thrown);
+    }
+    StringList files;
+    files.push_back(std::string(64, '1') + ".exr");
+    files.push_back("1.exr");
+    CHECK_EQ( 0, (int)parse("%065d.exr", files).size() );
+    CHECK_EQ( 0, (int)parse("%0999999999d.exr", files).size() );
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -627,6 +650,7 @@ main()
     testIncompatibleOtherNumber();
     testNumberInExtension();
     testOverflowFirstFile();
+    testMaxPadding();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif
