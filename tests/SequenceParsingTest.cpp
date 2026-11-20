@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <locale>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -371,6 +372,29 @@ testNegativeFrames()
     CHECK( seq.find(1) != seq.end() );
 }
 
+static void
+testGlobalLocale()
+{
+    // the global C++ locale (here with digit grouping) must not change the numbers
+    struct Grouping
+        : std::numpunct<char>
+    {
+        char do_thousands_sep() const override { return ','; }
+        std::string do_grouping() const override { return "\3"; }
+    };
+    std::locale previous = std::locale::global( std::locale(std::locale::classic(), new Grouping) );
+    std::vector<std::string> views;
+    CHECK_EQ( std::string("img.12345.exr"), generateFileNameFromPattern("img.####.exr", views, 12345, 0) );
+    CHECK_EQ( std::string("img.12345.exr"), generateFileNameFromPattern("img.%d.exr", views, 12345, 0) );
+    SequenceFromFiles seq( FileNameContent("/a/img.1000.exr"), false );
+    seq.tryInsertFile( FileNameContent("/a/img.1001.exr") );
+    CHECK_EQ( std::string("img.####.exr 1000-1001"), seq.generateUserFriendlySequencePattern() );
+    StringList files;
+    files.push_back("img.1234.exr");
+    CHECK_EQ( 1, (int)parse("img.%04d.exr", files).size() );
+    std::locale::global(previous);
+}
+
 #if !defined(_WIN32)
 static void
 testDirectoryListing()
@@ -414,6 +438,7 @@ main()
     testPrintfNoPadding();
     testViewsRoundTrip();
     testNegativeFrames();
+    testGlobalLocale();
 #if !defined(_WIN32)
     testDirectoryListing();
 #endif

@@ -27,7 +27,6 @@
 #include <iostream>
 #endif
 #include <stdexcept>
-#include <sstream>
 #include <fstream>
 #include <istream>
 #include <algorithm>
@@ -56,7 +55,6 @@
 using std::size_t;
 using std::map;
 using std::string;
-using std::stringstream;
 using std::wstring;
 using std::vector;
 using std::pair;
@@ -421,13 +419,12 @@ stringToInt(const string& str,
     return true;
 }
 
+// std::to_string, unlike a stringstream, does not depend on the global C++ locale
+// (which may have digit grouping, e.g. "1,234").
 static string
 stringFromInt(int nb)
 {
-    stringstream ss;
-    ss << nb;
-
-    return ss.str();
+    return std::to_string(nb);
 }
 
 static string
