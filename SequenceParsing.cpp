@@ -22,15 +22,11 @@
 #include <cassert>
 #include <cmath>
 #include <climits>
-#include <cctype> // isdigit(c)
 #include <cstddef>
 #ifdef DEBUG
 #include <iostream>
 #endif
 #include <stdexcept>
-#include <sstream>
-#include <fstream>
-#include <locale>
 #include <istream>
 #include <algorithm>
 #include <memory>
@@ -58,7 +54,6 @@
 using std::size_t;
 using std::map;
 using std::string;
-using std::stringstream;
 using std::wstring;
 using std::vector;
 using std::pair;
@@ -67,6 +62,56 @@ using std::make_pair;
 using namespace SequenceParsing;
 
 namespace  {
+
+// Locale-independent ASCII character classes.
+// Never pass a plain char to the <cctype> functions: bytes of UTF-8 sequences are
+// negative when char is signed, which is undefined behaviour (and an assertion
+// failure with the MSVC debug runtime).
+/// The largest padding accepted in a %0<N>d pattern: wider paddings make the pattern invalid
+/// (a padding of 999999999 would make a 1 GB file name).
+static const int kMaxPadding = 64;
+
+static inline bool
+isAsciiDigit(char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+static inline bool
+isAsciiAlpha(char c)
+{
+    return ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' );
+}
+
+static inline char
+asciiToLower(char c)
+{
+    return ( c >= 'A' && c <= 'Z' ) ? char(c - 'A' + 'a') : c;
+}
+
+static inline char
+asciiToUpper(char c)
+{
+    return ( c >= 'a' && c <= 'z' ) ? char(c - 'a' + 'A') : c;
+}
+
+// Returns the first character (code point) of a UTF-8 string, upper-cased if it is ASCII.
+static string
+firstCharacterUpper(const string& str)
+{
+    if ( str.empty() ) {
+        return string();
+    }
+    size_t len = 1;
+    // include the UTF-8 continuation bytes (10xxxxxx)
+    while ( len < str.size() && ( ( (unsigned char)str[len] & 0xC0 ) == 0x80 ) ) {
+        ++len;
+    }
+    string ret = str.substr(0, len);
+    ret[0] = asciiToUpper(ret[0]);
+
+    return ret;
+}
 
 #if (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
 static wstring
@@ -141,9 +186,12 @@ getFileSize(const string& filename)
 
     return (std::size_t)file_size.QuadPart;
 #else // !(defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
-    std::ifstream in(filename.c_str(), std::ifstream::ate | std::ifstream::binary);
+    struct stat st;
+    if ( (stat(filename.c_str(), &st) != 0) || (st.st_size < 0) ) {
+        return 0; // the size is just a hint
+    }
 
-    return in.tellg();
+    return (std::size_t)st.st_size;
 #endif // (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
 }
 
@@ -278,7 +326,7 @@ extractCommonPartsAndVariablesFromPattern(const string& patternUnPathedWithoutEx
             variable.push_back(c);
             ///if we're after a % character, and c is a letter different than d or v or V
             ///or c is digit different than 0, then we don't support this printf like style.
-            if ( std::isalpha( c, std::locale() ) ||
+            if ( isAsciiAlpha(c) ||
                  ( ( printfLikeArgIndex == 1) && ( c != '0') ) ) {
                 commonParts->push_back(variable);
                 commonCharactersFound += variable.size();
@@ -349,28 +397,40 @@ removeAllOccurences(string& str,
     }
 }
 
-static int
-stringToInt(const string& str)
+/**
+ * @brief Converts a string of ASCII digits to a non-negative int.
+ * Returns false if the string is empty, contains anything else than digits,
+ * or if the number does not fit in an int (std::atoi has undefined behaviour then).
+ **/
+static bool
+stringToInt(const string& str,
+            int* ret)
 {
-    //    stringstream ss(str);
-    //    int ret = 0;
-    //    try {
-    //        ss >> ret;
-    //    } catch (const std::ios_base::failure& e) {
-    //        return 0;
-    //    }
+    if ( str.empty() ) {
+        return false;
+    }
+    int value = 0;
+    for (size_t i = 0; i < str.size(); ++i) {
+        if ( !isAsciiDigit(str[i]) ) {
+            return false;
+        }
+        int digit = str[i] - '0';
+        if ( value > (INT_MAX - digit) / 10 ) {
+            return false;
+        }
+        value = value * 10 + digit;
+    }
+    *ret = value;
 
-    //    return ret;
-    return std::atoi( str.c_str() );
+    return true;
 }
 
+// std::to_string, unlike a stringstream, does not depend on the global C++ locale
+// (which may have digit grouping, e.g. "1,234").
 static string
 stringFromInt(int nb)
 {
-    stringstream ss;
-    ss << nb;
-
-    return ss.str();
+    return std::to_string(nb);
 }
 
 static string
@@ -421,9 +481,17 @@ numberMatchDigits(int digitsCount,
                   const string& number,
                   int *frameNumber)
 {
-    assert(digitsCount > 0);
+    if ( number.empty() ) {
+        return false;
+    }
+    if (digitsCount < 1) {
+        // %d (or %0d): no padding, like printf, so the number has at least one digit.
+        digitsCount = 1;
+    }
 
-    *frameNumber = stringToInt(number);
+    if ( !stringToInt(number, frameNumber) ) {
+        return false;
+    }
 
     if ( (int)number.size() == digitsCount ) {
         return true;
@@ -442,44 +510,93 @@ numberMatchDigits(int digitsCount,
     return true;
 }
 
+/*
+   Matches a frame number written with a padding of digitsCount (### or %0<digitsCount>d)
+   at startingPos in filename, i.e. what printf("%0<digitsCount>d") writes:
+   the number is at least digitsCount characters long, and longer only without leading zeroes.
+   A negative number starts with '-', which counts in the width, as with printf:
+   -5 is written "-005" with a padding of 4.
+ */
 static bool
-matchesHashTag(int sharpCount,
-               const string& filename,
-               size_t startingPos,
-               size_t *endPos,
-               int* frameNumber)
+matchesFrameNumber(int digitsCount,
+                   const string& filename,
+                   size_t startingPos,
+                   size_t *endPos,
+                   int* frameNumber)
 {
+    bool negative = ( startingPos < filename.size() ) && ( filename[startingPos] == '-' );
+    size_t variableIt = negative ? startingPos + 1 : startingPos;
     string variable;
-    size_t variableIt = startingPos;
-    for (variableIt = startingPos;
-         variableIt < filename.size() && std::isdigit(filename[variableIt]);
-         ++variableIt) {
+    for (; variableIt < filename.size() && isAsciiDigit(filename[variableIt]); ++variableIt) {
         variable.push_back(filename[variableIt]);
     }
     *endPos = variableIt;
 
-    return numberMatchDigits(sharpCount, variable, frameNumber);
-}
-
-static bool
-matchesPrintfLikeSyntax(int digitsCount,
-                        const string& filename,
-                        size_t startingPos,
-                        size_t *endPos,
-                        int* frameNumber)
-{
-    string variable;
-    size_t variableIt;
-    for (variableIt = startingPos;
-         variableIt < filename.size() && std::isdigit(filename[variableIt]);
-         ++variableIt) {
-        variable.push_back(filename[variableIt]);
+    if (!negative) {
+        return numberMatchDigits(digitsCount, variable, frameNumber);
     }
-    *endPos = variableIt;
+    int absFrameNumber;
+    if ( numberMatchDigits(digitsCount - 1, variable, &absFrameNumber) ) {
+        if (absFrameNumber == 0) {
+            return false; // printf never writes -0
+        }
+        *frameNumber = -absFrameNumber;
 
-    return numberMatchDigits(digitsCount, variable, frameNumber);
+        return true;
+    }
+    // INT_MIN: its absolute value doesn't fit in an int
+    if ( (variable == "2147483648") && ( (int)variable.size() + 1 >= digitsCount ) ) {
+        *frameNumber = INT_MIN;
+
+        return true;
+    }
+
+    return false;
 }
 
+/*
+   Writes frameNumber as printf("%0<digitsCount>d") does.
+ */
+static string
+frameNumberToString(int frameNumber,
+                    int digitsCount)
+{
+    long long absFrameNumber = frameNumber;
+    if (absFrameNumber < 0) {
+        absFrameNumber = -absFrameNumber;
+    }
+    string ret = std::to_string(absFrameNumber);
+    int width = (frameNumber < 0) ? digitsCount - 1 : digitsCount;
+    if ( (int)ret.size() < width ) {
+        ret.insert(0, width - ret.size(), '0');
+    }
+    if (frameNumber < 0) {
+        ret.insert(0, 1, '-');
+    }
+
+    return ret;
+}
+
+// Does str contain prefix at position pos, ignoring ASCII case?
+static bool
+matchesNoCase(const string& str,
+              size_t pos,
+              const char* prefix)
+{
+    for (; *prefix; ++prefix, ++pos) {
+        if ( ( pos >= str.size() ) || ( asciiToLower(str[pos]) != *prefix ) ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*
+   %v matches "l", "r" or "view<N>", %V matches "left", "right" or "view<N>".
+   The match ignores case, because generateFileNameFromPattern() writes
+   "L"/"R" for %v and the view name itself (e.g. "Left") for %V.
+ */
 static bool
 matchesView(bool longView,
             const string& filename,
@@ -487,63 +604,32 @@ matchesView(bool longView,
             size_t *endPos,
             int* viewNumber)
 {
-    string mid = filename.substr(startingPos);
-    if (!longView) {
-        if ( startsWith(mid, "r") ) {
-            *viewNumber = 1;
-            *endPos = startingPos + 1;
-
-            return true;
-        } else if ( startsWith(mid, "l") ) {
-            *viewNumber = 0;
-            *endPos = startingPos + 1;
-
-            return true;
-        } else if ( startsWith(mid, "view") ) {
-            string viewNoStr;
-            for (size_t it = 4; it < mid.size() && std::isdigit(mid[it]); ++it) {
-                viewNoStr.push_back(mid[it]);
-            }
-            if ( !viewNoStr.empty() ) {
-                *viewNumber = stringToInt(viewNoStr);
-                *endPos = startingPos + 4 + viewNoStr.size();
-            } else {
-                return false;
-            }
-
-            return true;
-        }
-
-        return false;
-    } else {
-        if ( startsWith(mid, "right") ) {
-            *viewNumber = 1;
-            *endPos = startingPos + 5;
-
-            return true;
-        } else if ( startsWith(mid, "left") ) {
-            *viewNumber = 0;
-            *endPos = startingPos + 4;
-
-            return true;
-        } else if ( startsWith(mid, "view") ) {
-            string viewNoStr;
-            for (size_t it = 4; it < mid.size() && std::isdigit(mid[it]); ++it) {
-                viewNoStr.push_back(mid[it]);
-            }
-
-            if ( !viewNoStr.empty() ) {
-                *viewNumber = stringToInt(viewNoStr);
-                *endPos = startingPos + 4 + viewNoStr.size();
-            } else {
-                return false;
-            }
-
-            return true;
-        }
-
-        return false;
+    const char* names[2] = { "l", "r" };
+    if (longView) {
+        names[0] = "left";
+        names[1] = "right";
     }
+    for (int v = 0; v < 2; ++v) {
+        if ( matchesNoCase(filename, startingPos, names[v]) ) {
+            *viewNumber = v;
+            *endPos = startingPos + std::char_traits<char>::length(names[v]);
+
+            return true;
+        }
+    }
+    if ( matchesNoCase(filename, startingPos, "view") ) {
+        string viewNoStr;
+        for (size_t it = startingPos + 4; it < filename.size() && isAsciiDigit(filename[it]); ++it) {
+            viewNoStr.push_back(filename[it]);
+        }
+        if ( stringToInt(viewNoStr, viewNumber) ) {
+            *endPos = startingPos + 4 + viewNoStr.size();
+
+            return true;
+        }
+    }
+
+    return false;
 } // matchesView
 
 static bool
@@ -611,7 +697,7 @@ matchesPattern_v2(const string& filename,
             size_t printfIt;
             string digitStr;
             for (printfIt = patternIt + 1;
-                 printfIt < pattern.size() && std::isdigit(pattern[printfIt]);
+                 printfIt < pattern.size() && isAsciiDigit(pattern[printfIt]);
                  ++printfIt) {
                 digitStr.push_back(pattern[printfIt]);
                 ++printfLikeVariableSize;
@@ -619,9 +705,11 @@ matchesPattern_v2(const string& filename,
 
             ///they are no more digit after the '%', check if this is correctly terminating by a 'd' character.
             /// We also treat the view %v and %V cases here
-            if ( ( printfIt < pattern.size() ) && ( std::tolower(pattern[printfIt]) == 'd') ) {
+            if ( ( printfIt < pattern.size() ) && ( asciiToLower(pattern[printfIt]) == 'd') ) {
                 foundPrintFLikeSyntax = true;
-                printfDigitCount = stringToInt(digitStr);
+                if ( !digitStr.empty() && ( !stringToInt(digitStr, &printfDigitCount) || (printfDigitCount > kMaxPadding) ) ) {
+                    return false;
+                }
             } else if ( ( printfIt < pattern.size() ) && ( pattern[printfIt] == 'V') ) {
                 foundLongView = true;
             } else if ( ( printfIt < pattern.size() ) && ( pattern[printfIt] == 'v') ) {
@@ -637,7 +725,7 @@ matchesPattern_v2(const string& filename,
             int fNumber = -1;
 
             ///check if the filename matches the number of hashes
-            if ( !matchesHashTag(sharpCount, filenameCpy, filenameIt, &endHashTag, &fNumber) ) {
+            if ( !matchesFrameNumber(sharpCount, filenameCpy, filenameIt, &endHashTag, &fNumber) ) {
                 return false;
             }
 
@@ -660,7 +748,7 @@ matchesPattern_v2(const string& filename,
             size_t endPrintfLike = 0;
             int fNumber = -1;
             ///check if the filename matches the %d syntax
-            if ( !matchesPrintfLikeSyntax(printfDigitCount, filenameCpy, filenameIt, &endPrintfLike, &fNumber) ) {
+            if ( !matchesFrameNumber(printfDigitCount, filenameCpy, filenameIt, &endPrintfLike, &fNumber) ) {
                 return false;
             }
 
@@ -741,6 +829,33 @@ matchesPattern_v2(const string& filename,
     return true;
 } // matchesPattern_v2
 
+/*
+   Can the number strings a and b be written with the same padding N (### or %0Nd)?
+   A number string that starts with '0' (including "0" itself) can only be written
+   with a padding equal to its length; a number string that does not start with '0'
+   can be written with any padding from 1 to its length. For example "0" and "10" are
+   both written with "#", "08" and "10" with "##", but "08" and "9" can't be in the same sequence.
+ */
+static bool
+samePaddingPossible(const string& a,
+                    const string& b)
+{
+    if ( a.empty() || b.empty() ) {
+        return false;
+    }
+    bool aFixed = ( a[0] == '0' );
+    bool bFixed = ( b[0] == '0' );
+    if (aFixed && bFixed) {
+        return a.size() == b.size();
+    } else if (aFixed) {
+        return b.size() >= a.size();
+    } else if (bFixed) {
+        return a.size() >= b.size();
+    }
+
+    return true;
+}
+
 static int countLeadingZeroes(const string& str)
 {
     int ret = 0;
@@ -790,7 +905,6 @@ struct FileNameContentPrivate
     string filePath;     //!< the filepath
     string filename;     //!< the filename without path
     string extension;     //!< the file extension
-    string generatedPattern;
     int leadingZeroes; //!< leading zeroes for the last number seen in the file path??? why store this?
 
     FileNameContentPrivate()
@@ -799,7 +913,6 @@ struct FileNameContentPrivate
         , filePath()
         , filename()
         , extension()
-        , generatedPattern()
         , leadingZeroes(0)
     {
     }
@@ -813,12 +926,27 @@ FileNameContent::FileNameContent(const string& absoluteFilename)
     _imp->absoluteFileName = absoluteFilename;
     _imp->filename = absoluteFilename;
     _imp->filePath = removePath(_imp->filename);
-    std::locale loc;
+    // Numbers in the extension (IMG_0001.CR2, .jp2, .mp4, .3fr) are not frame numbers:
+    // they are part of the text after the last '.'. An extension made only of digits
+    // (img.0001, img.0002...) is the frame number itself.
+    size_t extensionDotPos = _imp->filename.find_last_of('.');
+    if (extensionDotPos != string::npos) {
+        bool allDigits = true;
+        for (size_t i = extensionDotPos + 1; i < _imp->filename.size(); ++i) {
+            if ( !isAsciiDigit(_imp->filename[i]) ) {
+                allDigits = false;
+                break;
+            }
+        }
+        if (allDigits) {
+            extensionDotPos = string::npos;
+        }
+    }
     string lastNumberStr;
     string lastTextPart;
     for (size_t i = 0; i < _imp->filename.size(); ++i) {
         const char& c = _imp->filename[i];
-        if ( std::isdigit(c, loc) ) {
+        if ( isAsciiDigit(c) && ( ( extensionDotPos == string::npos) || (i < extensionDotPos) ) ) {
             lastNumberStr += c;
             if ( !lastTextPart.empty() ) {
                 _imp->orderedElements.push_back( FileNameElement(lastTextPart, FileNameElement::TEXT) );
@@ -872,7 +1000,7 @@ FileNameContent::operator=(const FileNameContent& other)
     _imp->filename = other._imp->filename;
     _imp->filePath = other._imp->filePath;
     _imp->extension = other._imp->extension;
-    _imp->generatedPattern = other._imp->generatedPattern;
+    _imp->leadingZeroes = other._imp->leadingZeroes;
 }
 
 int
@@ -917,34 +1045,31 @@ FileNameContent::getExtension() const
 /**
  * @brief Returns the file pattern found in the filename with hash characters style for frame number (i.e: ###)
  **/
-const string&
+string
 FileNameContent::getFilePattern(int numHashes) const
 {
-    if ( _imp->generatedPattern.empty() ) {
-        ///now build the generated pattern with the ordered elements.
-        int numberIndex = 0;
-        for (size_t j = 0; j < _imp->orderedElements.size(); ++j) {
-            const FileNameElement& e = _imp->orderedElements[j];
-            switch (e.type) {
-            case FileNameElement::TEXT:
-                _imp->generatedPattern.append(e.data);
-                break;
-            case FileNameElement::FRAME_NUMBER: {
-                string hashStr;
-                for (int c = 0; c < numHashes; ++c) {
-                    hashStr.push_back('#');
-                }
-                _imp->generatedPattern.append( hashStr + stringFromInt(numberIndex) );
-                ++numberIndex;
-            }
+    // Not cached: the pattern depends on numHashes, and a const method that modifies
+    // the object would not be thread-safe.
+    string pattern;
+    int numberIndex = 0;
+
+    for (size_t j = 0; j < _imp->orderedElements.size(); ++j) {
+        const FileNameElement& e = _imp->orderedElements[j];
+        switch (e.type) {
+        case FileNameElement::TEXT:
+            pattern.append(e.data);
             break;
-            default:
-                break;
-            }
+        case FileNameElement::FRAME_NUMBER:
+            pattern.append(numHashes, '#');
+            pattern.append( stringFromInt(numberIndex) );
+            ++numberIndex;
+            break;
+        default:
+            break;
         }
     }
 
-    return _imp->generatedPattern;
+    return pattern;
 }
 
 /**
@@ -1016,36 +1141,29 @@ FileNameContent::matchesPattern(const FileNameContent& other,
             return false;
         }
         if (_imp->orderedElements[i].type == FileNameElement::FRAME_NUMBER) {
-            /*
-               The following rules applying for matching frame numbers:
-               First we generate hashes from this number, then:
-               - If the other number has at least as many digits as the hashes generated then it is OK
-               - If the other number has more digits than the hashes, it is only OK if it has 0 prepening zeroes
-             */
-            int hashesCount = (int)_imp->orderedElements[i].data.size();
-            int number;
-            bool isOK = false;
-            // first, the number string must be different
-            if ( _imp->orderedElements[i].data != otherElements[i].data ) {
-                // if the number strings do not start with 0 then it may be a match
-                if ( ( _imp->orderedElements[i].data.size() > 0) && ( _imp->orderedElements[i].data[0] != '0') &&
-                    ( otherElements[i].data.size() > 0) && ( otherElements[i].data[0] != '0') ) {
-                    isOK = true;
-                } else {
-                    isOK = numberMatchDigits(hashesCount, otherElements[i].data, &number);
-                }
+            // a varying number must be written with the same padding in both names
+            const string& thisNumber = _imp->orderedElements[i].data;
+            const string& otherNumber = otherElements[i].data;
+            if (thisNumber == otherNumber) {
+                ++numbersCount;
+                continue;
             }
+            // a number that differs but can't be written with the same padding
+            // (e.g. "8" and "08") means another sequence
+            if ( !samePaddingPossible(thisNumber, otherNumber) ) {
+                *numberIndexToVary = -1;
 
-            if (isOK) {
-                if (*numberIndexToVary == -1) {
-                    *numberIndexToVary = numbersCount;
-                } else {
-                    // cannot have more than one varying number, eg:
-                    // Digital_LAD_2048x1556.cin
-                    // Digital_LAD_4096x3112.cin
-                    *numberIndexToVary = -1;
-                    return false;
-                }
+                return false;
+            }
+            if (*numberIndexToVary == -1) {
+                *numberIndexToVary = numbersCount;
+            } else {
+                // cannot have more than one varying number, eg:
+                // Digital_LAD_2048x1556.cin
+                // Digital_LAD_4096x3112.cin
+                *numberIndexToVary = -1;
+
+                return false;
             }
 
             ++numbersCount;
@@ -1094,42 +1212,21 @@ FileNameContent::generatePatternWithFrameNumberAtIndex(int index,
                                                        int numHashes,
                                                        string* pattern) const
 {
+    // Build the pattern from the elements: the number at index becomes numHashes '#',
+    // the other numbers are kept as they are.
+    string unpathedPattern;
     int numbersCount = 0;
-    size_t lastNumberPos = 0;
 
-    string indexedPattern = getFilePattern(numHashes);
     for (size_t i = 0; i < _imp->orderedElements.size(); ++i) {
-        if (_imp->orderedElements[i].type == FileNameElement::FRAME_NUMBER) {
-            lastNumberPos = findStr(indexedPattern, "#", 0);
-            assert(lastNumberPos != string::npos);
-
-            size_t endTagPos = lastNumberPos;
-            while (endTagPos < indexedPattern.size() && indexedPattern[endTagPos] == '#') {
-                ++endTagPos;
-            }
-
-            ///assert that the end of the tag is composed of  a digit
-
-            if ( endTagPos < indexedPattern.size() ) {
-                assert( std::isdigit(indexedPattern[endTagPos]) );
-            }
-
-            if (index == numbersCount) {
-                ///remove the index of the tag and keep the tag.
-                if ( endTagPos < indexedPattern.size() ) {
-                    indexedPattern.erase(endTagPos, 1);
-                }
-            } else {
-                ///if this is not the number we're interested in to keep the ###, just expand the variable
-                ///replace the whole tag with the original data
-                indexedPattern.replace(lastNumberPos, endTagPos - lastNumberPos + 1, _imp->orderedElements[i].data);
-            }
-
-            ++numbersCount;
+        const FileNameElement& e = _imp->orderedElements[i];
+        if ( (e.type == FileNameElement::FRAME_NUMBER) && (numbersCount++ == index) ) {
+            unpathedPattern.append(numHashes, '#');
+        } else {
+            unpathedPattern.append(e.data);
         }
     }
 
-    *pattern = getPath() + indexedPattern;
+    *pattern = getPath() + unpathedPattern;
 }
 
 string
@@ -1270,16 +1367,11 @@ generateFileNameFromPattern(const string& pattern,
         assert(lastVariablePos != string::npos);
 
         if (variable.find_first_of('#') != string::npos) {
-            string frameNoStr = stringFromInt(frameNumber);
-            ///prepend with extra 0's
-            while ( frameNoStr.size() < variable.size() ) {
-                frameNoStr.insert(0, 1, '0');
-            }
-            output.replace(lastVariablePos, variable.size(), frameNoStr);
+            output.replace( lastVariablePos, variable.size(), frameNumberToString( frameNumber, (int)variable.size() ) );
         } else if (variable.find("%v") != string::npos) {
             string viewNumberStr;
             if ( ( viewNumber >= 0) && ( viewNumber < (int)viewNames.size() ) ) {
-                viewNumberStr.push_back( std::toupper(viewNames[viewNumber][0]) );
+                viewNumberStr = firstCharacterUpper(viewNames[viewNumber]);
             }
 
 
@@ -1293,15 +1385,13 @@ generateFileNameFromPattern(const string& pattern,
             string digitsCountStr = variable;
             removeAllOccurences(digitsCountStr, "%0");
             removeAllOccurences(digitsCountStr, "d");
-            int digitsCount = stringToInt(digitsCountStr);
-            string frameNoStr = stringFromInt(frameNumber);
-            //prepend with extra 0's
-            while ( (int)frameNoStr.size() < digitsCount ) {
-                frameNoStr.insert(0, 1, '0');
+            int digitsCount = 0;
+            if ( !digitsCountStr.empty() && ( !stringToInt(digitsCountStr, &digitsCount) || (digitsCount > kMaxPadding) ) ) {
+                throw std::invalid_argument("Unrecognized pattern: " + pattern);
             }
-            output.replace(lastVariablePos, variable.size(), frameNoStr);
+            output.replace( lastVariablePos, variable.size(), frameNumberToString(frameNumber, digitsCount) );
         } else if (variable == "%d") {
-            output.replace( lastVariablePos, variable.size(), stringFromInt(frameNumber) );
+            output.replace( lastVariablePos, variable.size(), frameNumberToString(frameNumber, 1) );
         } else {
             throw std::invalid_argument("Unrecognized pattern: " + pattern);
         }
@@ -1319,7 +1409,6 @@ struct SequenceFromFilesPrivate
     int frameNumberStringIndex;
     unsigned long long totalSize;
     bool sizeEstimationEnabled;
-    int minNumHashes;     //< the minimum number of hash tags # for the pattern
 
     SequenceFromFilesPrivate(bool enableSizeEstimation)
 
@@ -1327,13 +1416,30 @@ struct SequenceFromFilesPrivate
         , frameNumberStringIndex(-1)
         , totalSize(0)
         , sizeEstimationEnabled(enableSizeEstimation)
-        , minNumHashes(0)
     {
     }
 
     bool isInSequence(int index) const
     {
         return filesMap.find(index) != filesMap.end();
+    }
+
+    /// The number of hash tags # for the pattern: the length of the frame numbers that start
+    /// with '0', if any, else the length of the shortest frame number.
+    int getNumHashes() const
+    {
+        int numHashes = INT_MAX;
+        for (map<int, FileNameContent>::const_iterator it = filesMap.begin(); it != filesMap.end(); ++it) {
+            string frameNumberStr;
+            if ( it->second.getNumberByIndex(frameNumberStringIndex, &frameNumberStr) && !frameNumberStr.empty() ) {
+                if (frameNumberStr[0] == '0') {
+                    return (int)frameNumberStr.size();
+                }
+                numHashes = std::min( numHashes, (int)frameNumberStr.size() );
+            }
+        }
+
+        return numHashes == INT_MAX ? 0 : numHashes;
     }
 };
 
@@ -1378,12 +1484,13 @@ SequenceFromFiles::tryInsertFile(const FileNameContent& file,
         _imp->frameNumberStringIndex = file.getPotentialFrameNumbersCount() - 1;
         int frameNumber = -1;
         bool ok = file.getNumberByIndex(_imp->frameNumberStringIndex, &frameNumberStr);
-        if (ok) {
-            frameNumber = stringToInt(frameNumberStr);
+        if ( ok && !stringToInt(frameNumberStr, &frameNumber) ) {
+            // the number is too large to be a frame number: this file has no frame number,
+            // and no other file can join it
+            frameNumber = -1;
+            _imp->frameNumberStringIndex = -1;
         }
         _imp->filesMap.insert( make_pair(frameNumber, file) );
-
-        _imp->minNumHashes = (int)frameNumberStr.size();
 
         if (_imp->sizeEstimationEnabled) {
             _imp->totalSize += getFileSize( file.absoluteFileName() );
@@ -1411,10 +1518,12 @@ SequenceFromFiles::tryInsertFile(const FileNameContent& file,
             insert = true;
 
             string frameNumberStr;
-            bool ok = file.getNumberByIndex(_imp->frameNumberStringIndex, &frameNumberStr);
+            int frameNumber = -1;
+            bool ok = file.getNumberByIndex(_imp->frameNumberStringIndex, &frameNumberStr) &&
+                      stringToInt(frameNumberStr, &frameNumber);
             if (ok) {
                 pair<map<int, FileNameContent>::iterator, bool> success =
-                    _imp->filesMap.insert( make_pair(stringToInt(frameNumberStr), file) );
+                    _imp->filesMap.insert( make_pair(frameNumber, file) );
 
                 ///Insert might have failed because we didn't check prior to this whether the file was already
                 ///present or not.
@@ -1511,7 +1620,7 @@ SequenceFromFiles::generateValidSequencePattern() const
     assert(_imp->filesMap.size() >= 2);
     string firstFramePattern;
     _imp->filesMap.begin()->second.generatePatternWithFrameNumberAtIndex(_imp->frameNumberStringIndex,
-                                                                         _imp->minNumHashes,
+                                                                         _imp->getNumHashes(),
                                                                          &firstFramePattern);
 
     return firstFramePattern;
@@ -1531,7 +1640,6 @@ SequenceFromFiles::generateUserFriendlySequencePatternFromValidPattern(const str
         ++next;
     }
     while ( first != _imp->filesMap.end() ) {
-        int breakCounter = 0;
         while ( next != _imp->filesMap.end() && cur != _imp->filesMap.end() && next->first == (cur->first + 1) ) {
             if ( next != _imp->filesMap.end() ) {
                 ++next;
@@ -1539,7 +1647,6 @@ SequenceFromFiles::generateUserFriendlySequencePatternFromValidPattern(const str
             if ( cur != _imp->filesMap.end() ) {
                 ++cur;
             }
-            ++breakCounter;
         }
         if ( cur != _imp->filesMap.end() ) {
             chunks.push_back( make_pair(first->first, cur->first) );
